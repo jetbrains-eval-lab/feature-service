@@ -3,7 +3,8 @@ package com.sivalabs.ft.features.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.sivalabs.ft.features.TestcontainersConfiguration;
+import com.sivalabs.ft.features.DatabaseConfiguration;
+
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,7 +13,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.jdbc.Sql;
 
 @SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@Import(DatabaseConfiguration.class)
 @Sql(scripts = {"/test-data.sql"})
 class ProductServiceTest {
 

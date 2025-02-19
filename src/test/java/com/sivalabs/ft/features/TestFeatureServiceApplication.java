@@ -6,7 +6,7 @@ public class TestFeatureServiceApplication {
 
     public static void main(String[] args) {
         SpringApplication.from(FeatureServiceApplication::main)
-                .with(TestcontainersConfiguration.class)
+                .with(DatabaseConfiguration.class)
                 .run(args);
     }
 }
