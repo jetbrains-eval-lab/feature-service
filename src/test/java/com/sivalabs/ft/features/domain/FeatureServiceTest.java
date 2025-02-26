@@ -27,7 +27,7 @@ class FeatureServiceTest {
 
     @MockitoBean("eventPublisher")
     EventPublisher eventPublisher;
-    
+
     @BeforeEach
     public void setupMocks() {
         Mockito.reset(eventPublisher);
