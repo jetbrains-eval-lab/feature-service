@@ -1,7 +1,6 @@
 package com.sivalabs.ft.features.integration;
 
 import com.sivalabs.ft.features.domain.Feature;
-
 import java.time.Instant;
 
 public interface EventPublisher {

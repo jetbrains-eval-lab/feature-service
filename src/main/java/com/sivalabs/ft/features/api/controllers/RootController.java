@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping( "/api")
+@RequestMapping("/api")
 class RootController {
 
     @Value("${ft.openapi.version}")
@@ -19,12 +19,12 @@ class RootController {
     @Value("${ft.openapi.contact.email}")
     private String contactEmail;
 
-    @GetMapping( "/version")
+    @GetMapping("/version")
     public ResponseEntity<String> getVersion() {
         return ResponseEntity.ok(apiVersion);
     }
 
-    @GetMapping( path = "/contact", produces = "application/json")
+    @GetMapping(path = "/contact", produces = "application/json")
     public ResponseEntity<ContactDto> getContact() {
         return ResponseEntity.ok(new ContactDto(contactName, contactEmail));
     }

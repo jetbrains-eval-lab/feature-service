@@ -1,31 +1,28 @@
 package com.sivalabs.ft.features.domain;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
+
 import com.sivalabs.ft.features.DatabaseConfiguration;
 import com.sivalabs.ft.features.integration.EventPublisher;
-import com.sivalabs.ft.features.integration.KafkaEventPublisher;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
-import org.mockito.internal.verification.AtLeast;
-import org.mockito.internal.verification.Only;
 import org.mockito.internal.verification.VerificationModeFactory;
-import org.mockito.verification.VerificationMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.jdbc.Sql;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
-
 @SpringBootTest
 @Import(DatabaseConfiguration.class)
+@TestPropertySource("classpath:application-test.properties")
 @Sql(scripts = {"/test-data.sql"})
 class FeatureServiceTest {
 
@@ -42,7 +39,7 @@ class FeatureServiceTest {
 
     @Test
     void shouldGetFeaturesByReleaseCode() {
-        List<Feature> features = featureService.findFeatures ("IJ-2023.3.8");
+        List<Feature> features = featureService.findFeatures("IJ-2023.3.8");
         assertThat(features).hasSize(2);
     }
 
@@ -62,8 +59,7 @@ class FeatureServiceTest {
                 "New Feature",
                 "New feature description",
                 "john.doe",
-                "jane.doe"
-        );
+                "jane.doe");
         ArgumentCaptor<Feature> eventCaptor = ArgumentCaptor.forClass(Feature.class);
         Long featureId = featureService.createFeature(request);
         verify(eventPublisher, VerificationModeFactory.only()).publishFeatureCreatedEvent(eventCaptor.capture());
@@ -79,8 +75,7 @@ class FeatureServiceTest {
                 "Updated description",
                 FeatureStatus.IN_DEVELOPMENT,
                 "jane.doe",
-                "john.doe"
-        );
+                "john.doe");
         ArgumentCaptor<Feature> eventCaptor = ArgumentCaptor.forClass(Feature.class);
         featureService.updateFeature(request);
         verify(eventPublisher, VerificationModeFactory.only()).publishFeatureUpdatedEvent(eventCaptor.capture());
@@ -92,7 +87,6 @@ class FeatureServiceTest {
         assertThat(updatedFeature.getUpdatedBy()).isEqualTo("john.doe");
     }
 
-
     @Test
     void shouldDeleteFeature() {
         String featureCode = "IJ-10001";
@@ -103,15 +97,11 @@ class FeatureServiceTest {
 
         featureService.deleteFeature(cmd);
 
-        verify(eventPublisher, VerificationModeFactory.only()).publishFeatureDeletedEvent(
-                featureCaptor.capture(),
-                userCaptor.capture(),
-                timeCaptor.capture()
-        );
+        verify(eventPublisher, VerificationModeFactory.only())
+                .publishFeatureDeletedEvent(featureCaptor.capture(), userCaptor.capture(), timeCaptor.capture());
         Feature deletedFeature = featureCaptor.getValue();
         assertThat(deletedFeature.getCode()).isEqualTo(featureCode);
         assertThat(userCaptor.getValue()).isEqualTo("john.doe");
         assertThat(timeCaptor.getValue()).isNotNull();
     }
-
 }

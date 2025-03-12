@@ -1,6 +1,5 @@
 package com.sivalabs.ft.features.api.controllers;
 
-
 import com.sivalabs.ft.features.AbstractIT;
 import org.junit.jupiter.api.Test;
 
@@ -17,5 +16,4 @@ public class RootControllerTests extends AbstractIT {
         var result = mvc.get().uri("/api/contact");
         result.assertThat().body().asString().isEqualTo("{\"name\":\"SivaLabs\",\"email\":\"support@sivalabs.in\"}");
     }
-
 }

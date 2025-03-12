@@ -1,7 +1,6 @@
 package com.sivalabs.ft.features.integration;
 
 import com.sivalabs.ft.features.domain.FeatureStatus;
-
 import java.time.Instant;
 
 record FeatureDeletedEvent(
