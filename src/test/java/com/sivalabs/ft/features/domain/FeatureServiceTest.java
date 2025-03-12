@@ -1,6 +1,7 @@
 package com.sivalabs.ft.features.domain;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
+import com.sivalabs.ft.features.integration.KafkaEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -25,8 +26,8 @@ class FeatureServiceTest {
     @Autowired
     FeatureService featureService;
 
-    @MockitoBean("eventPublisher")
-    EventPublisher eventPublisher;
+    @MockitoBean("kafkaEventPublisher")
+    KafkaEventPublisher eventPublisher;
 
     @BeforeEach
     public void setupMocks() {

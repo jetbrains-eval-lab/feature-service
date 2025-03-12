@@ -1,8 +1,10 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.integration;
+
+import com.sivalabs.ft.features.domain.FeatureStatus;
 
 import java.time.Instant;
 
-public record FeatureUpdatedEvent(
+record FeatureCreatedEvent(
         Long id,
         String code,
         String title,
@@ -10,6 +12,4 @@ public record FeatureUpdatedEvent(
         FeatureStatus status,
         String assignedTo,
         String createdBy,
-        Instant createdAt,
-        String updatedBy,
-        Instant updatedAt) {}
+        Instant createdAt) {}
