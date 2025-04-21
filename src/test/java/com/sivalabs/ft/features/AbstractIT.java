@@ -21,7 +21,7 @@ public abstract class AbstractIT {
 
     @MockitoBean("eventPublisher")
     EventPublisher eventPublisher;
-    
+
     @Autowired
     protected MockMvcTester mvc;
 }
