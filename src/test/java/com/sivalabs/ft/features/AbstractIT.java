@@ -19,7 +19,7 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
 @TestPropertySource("classpath:application-test.properties")
 public abstract class AbstractIT {
 
-    @MockitoBean("eventPublisher")
+    @MockitoBean
     EventPublisher eventPublisher;
 
     @Autowired

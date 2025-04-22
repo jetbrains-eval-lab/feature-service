@@ -20,49 +20,19 @@ public class KafkaEventPublisher implements EventPublisher {
 
     @Override
     public void publishFeatureCreatedEvent(Feature feature) {
-        FeatureCreatedEvent event = new FeatureCreatedEvent(
-                feature.getId(),
-                feature.getCode(),
-                feature.getTitle(),
-                feature.getDescription(),
-                feature.getStatus(),
-                feature.getAssignedTo(),
-                feature.getCreatedBy(),
-                feature.getCreatedAt());
+        FeatureCreatedEvent event = new FeatureCreatedEvent(feature);
         kafkaTemplate.send(properties.events().newFeatures(), event);
     }
 
     @Override
     public void publishFeatureUpdatedEvent(Feature feature) {
-        FeatureUpdatedEvent event = new FeatureUpdatedEvent(
-                feature.getId(),
-                feature.getCode(),
-                feature.getTitle(),
-                feature.getDescription(),
-                feature.getStatus(),
-                feature.getAssignedTo(),
-                feature.getCreatedBy(),
-                feature.getCreatedAt(),
-                feature.getUpdatedBy(),
-                feature.getUpdatedAt());
+        FeatureUpdatedEvent event = new FeatureUpdatedEvent(feature);
         kafkaTemplate.send(properties.events().updatedFeatures(), event);
     }
 
     @Override
     public void publishFeatureDeletedEvent(Feature feature, String deletedBy, Instant deletedAt) {
-        FeatureDeletedEvent event = new FeatureDeletedEvent(
-                feature.getId(),
-                feature.getCode(),
-                feature.getTitle(),
-                feature.getDescription(),
-                feature.getStatus(),
-                feature.getAssignedTo(),
-                feature.getCreatedBy(),
-                feature.getCreatedAt(),
-                feature.getUpdatedBy(),
-                feature.getUpdatedAt(),
-                deletedBy,
-                deletedAt);
+        FeatureDeletedEvent event = new FeatureDeletedEvent(feature, deletedBy, deletedAt);
         kafkaTemplate.send(properties.events().deletedFeatures(), event);
     }
 }

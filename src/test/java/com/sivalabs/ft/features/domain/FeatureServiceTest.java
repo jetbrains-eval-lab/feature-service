@@ -29,7 +29,7 @@ class FeatureServiceTest {
     @Autowired
     FeatureService featureService;
 
-    @MockitoBean("eventPublisher")
+    @MockitoBean
     EventPublisher eventPublisher;
 
     @BeforeEach

@@ -1,5 +1,6 @@
 package com.sivalabs.ft.features.integration;
 
+import com.sivalabs.ft.features.domain.Feature;
 import com.sivalabs.ft.features.domain.FeatureStatus;
 import java.time.Instant;
 
@@ -11,4 +12,17 @@ record FeatureCreatedEvent(
         FeatureStatus status,
         String assignedTo,
         String createdBy,
-        Instant createdAt) {}
+        Instant createdAt) {
+
+    public FeatureCreatedEvent(Feature feature) {
+        this(
+                feature.getId(),
+                feature.getCode(),
+                feature.getTitle(),
+                feature.getDescription(),
+                feature.getStatus(),
+                feature.getAssignedTo(),
+                feature.getCreatedBy(),
+                feature.getCreatedAt());
+    }
+}

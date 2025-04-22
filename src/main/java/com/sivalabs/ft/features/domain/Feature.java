@@ -152,4 +152,21 @@ public class Feature {
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
     }
+
+    @Override
+    public String toString() {
+        return "Feature{" + "id="
+                + id + ", product="
+                + product + ", release="
+                + release + ", code='"
+                + code + '\'' + ", title='"
+                + title + '\'' + ", description='"
+                + description + '\'' + ", status="
+                + status + ", assignedTo='"
+                + assignedTo + '\'' + ", createdBy='"
+                + createdBy + '\'' + ", createdAt="
+                + createdAt + ", updatedBy='"
+                + updatedBy + '\'' + ", updatedAt="
+                + updatedAt + '}';
+    }
 }
