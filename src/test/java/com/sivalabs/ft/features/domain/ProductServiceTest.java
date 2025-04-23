@@ -4,9 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
-import java.util.Optional;
-
 import jakarta.persistence.EntityNotFoundException;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -28,7 +27,9 @@ class ProductServiceTest {
     void testFindProductByCode() {
         String code = "intellij";
         Optional<Product> result = productService.findProductByCode(code);
-        assertThat(result).as("Product with code '%s' should exist".formatted(code)).isPresent();
+        assertThat(result)
+                .as("Product with code '%s' should exist".formatted(code))
+                .isPresent();
         assertThat(result.get().getCode())
                 .as("Product code does not match the expected value")
                 .isEqualTo(code);
@@ -67,7 +68,8 @@ class ProductServiceTest {
         productService.updateProduct(updateCommand);
         var updatedProduct = productRepository
                 .findByCode(productCode)
-                .orElseThrow(() -> new ResourceNotFoundException("Product with code '%s' not found".formatted(productCode)));
+                .orElseThrow(
+                        () -> new ResourceNotFoundException("Product with code '%s' not found".formatted(productCode)));
         assertThat(updatedProduct)
                 .usingRecursiveComparison()
                 .comparingOnlyFields("name", "description", "imageUrl", "updatedBy")

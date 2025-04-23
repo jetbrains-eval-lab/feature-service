@@ -1,9 +1,8 @@
 package com.sivalabs.ft.features.domain;
 
+import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Optional;
-
-import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,7 +40,8 @@ public class ProductService {
     public void updateProduct(UpdateProductCommand cmd) {
         var product = productRepository
                 .findByCode(cmd.code())
-                .orElseThrow(() -> new EntityNotFoundException("Product with code '%s' not found".formatted(cmd.code())));
+                .orElseThrow(
+                        () -> new EntityNotFoundException("Product with code '%s' not found".formatted(cmd.code())));
         product.setName(cmd.name());
         product.setDescription(cmd.description());
         product.setImageUrl(cmd.imageUrl());
