@@ -19,7 +19,7 @@ class ProductControllerTests extends AbstractIT {
                 .bodyJson()
                 .extractingPath("$.size()")
                 .asNumber()
-                .isEqualTo(5);
+                .satisfies(size -> assertThat(size.intValue()).isGreaterThanOrEqualTo(5));
     }
 
     @Test

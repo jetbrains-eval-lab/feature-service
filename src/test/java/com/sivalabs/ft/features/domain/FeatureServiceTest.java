@@ -18,12 +18,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.jdbc.Sql;
 
 @SpringBootTest
 @Import(DatabaseConfiguration.class)
 @TestPropertySource("classpath:application-test.properties")
-@Sql(scripts = {"/test-data.sql"})
 class FeatureServiceTest {
 
     @Autowired
@@ -54,8 +52,8 @@ class FeatureServiceTest {
     void shouldCreateNewFeature() {
         CreateFeatureCommand request = new CreateFeatureCommand(
                 "intellij",
-                "IJ-2023.3.8",
-                "IJ-999999",
+                "IJ-2023.3.TEST",
+                "IJ-999998",
                 "New Feature",
                 "New feature description",
                 "john.doe",
@@ -89,7 +87,7 @@ class FeatureServiceTest {
 
     @Test
     void shouldDeleteFeature() {
-        String featureCode = "IJ-10001";
+        String featureCode = "IJ-10003";
         DeleteFeatureCommand cmd = new DeleteFeatureCommand(featureCode, "john.doe");
         ArgumentCaptor<Feature> featureCaptor = ArgumentCaptor.forClass(Feature.class);
         ArgumentCaptor<String> userCaptor = ArgumentCaptor.forClass(String.class);

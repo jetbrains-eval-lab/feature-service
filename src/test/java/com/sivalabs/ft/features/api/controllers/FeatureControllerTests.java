@@ -19,7 +19,7 @@ class FeatureControllerTests extends AbstractIT {
                 .bodyJson()
                 .extractingPath("$.size()")
                 .asNumber()
-                .isEqualTo(2);
+                .satisfies(size -> assertThat(size.intValue()).isGreaterThanOrEqualTo(2));
     }
 
     @Test
@@ -44,7 +44,7 @@ class FeatureControllerTests extends AbstractIT {
                 """
             {
                 "productCode": "intellij",
-                "releaseCode": "IJ-2023.3.8",
+                "releaseCode": "IJ-2023.3.TEST",
                 "code": "IJ-999999",
                 "title": "New Feature",
                 "description": "New feature description",

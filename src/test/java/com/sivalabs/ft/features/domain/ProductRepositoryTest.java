@@ -7,9 +7,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
+
+import java.util.Optional;
 
 @DataJpaTest
 @Import(DatabaseConfiguration.class)
+@TestPropertySource("classpath:application-test.properties")
 class ProductRepositoryTest {
 
     @Autowired
@@ -17,11 +21,11 @@ class ProductRepositoryTest {
 
     @Test
     void testFindByCode() {
-        Product productByCode = productRepository
-                .findByCode("intellij")
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
-        assertThat(productByCode.getCode())
+        String code = "intellij";
+        Optional<Product> productByCode = productRepository.findByCode(code);
+        assertThat(productByCode).as("Product with code '%s' should exists".formatted(code)).isPresent();
+        assertThat(productByCode.get().getCode())
                 .as("Product code does not match condition")
-                .isEqualTo("intellij");
+                .isEqualTo(code);
     }
 }

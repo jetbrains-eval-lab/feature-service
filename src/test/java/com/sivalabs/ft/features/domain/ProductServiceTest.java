@@ -5,15 +5,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
 import java.util.Optional;
+
+import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.context.TestPropertySource;
 
 @SpringBootTest
 @Import(DatabaseConfiguration.class)
-@Sql(scripts = {"/test-data.sql"})
+@TestPropertySource("classpath:application-test.properties")
 class ProductServiceTest {
 
     @Autowired
@@ -24,11 +26,12 @@ class ProductServiceTest {
 
     @Test
     void testFindProductByCode() {
-        Optional<Product> result = productService.findProductByCode("intellij");
-        assertThat(result).as("Product with code 'intellij' should be present").isPresent();
+        String code = "intellij";
+        Optional<Product> result = productService.findProductByCode(code);
+        assertThat(result).as("Product with code '%s' should exist".formatted(code)).isPresent();
         assertThat(result.get().getCode())
                 .as("Product code does not match the expected value")
-                .isEqualTo("intellij");
+                .isEqualTo(code);
     }
 
     @Test
@@ -64,7 +67,7 @@ class ProductServiceTest {
         productService.updateProduct(updateCommand);
         var updatedProduct = productRepository
                 .findByCode(productCode)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Product with code '%s' not found".formatted(productCode)));
         assertThat(updatedProduct)
                 .usingRecursiveComparison()
                 .comparingOnlyFields("name", "description", "imageUrl", "updatedBy")
@@ -77,7 +80,7 @@ class ProductServiceTest {
         var updateCommand =
                 new UpdateProductCommand(nonExistentCode, "Some Name", "Some Description", "some-image-url", "user");
         assertThatThrownBy(() -> productService.updateProduct(updateCommand))
-                .isInstanceOf(ResourceNotFoundException.class)
+                .isInstanceOf(EntityNotFoundException.class)
                 .as("Error message must contain product code")
                 .hasMessageContaining(updateCommand.code());
     }

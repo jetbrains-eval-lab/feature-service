@@ -14,7 +14,7 @@ class ReleaseControllerTests extends AbstractIT {
 
     @Test
     void shouldGetReleasesByProductCode() {
-        var result = mvc.get().uri("/api/releases?productCode={code}", "intellij");
+        var result = mvc.get().uri("/api/releases?productCode={code}", "goland");
         assertThat(result)
                 .hasStatusOk()
                 .bodyJson()
@@ -44,9 +44,9 @@ class ReleaseControllerTests extends AbstractIT {
         var payload =
                 """
             {
-                "productCode": "intellij",
-                "code": "intellij-2025.1",
-                "description": "IntelliJ IDEA 2025.1"
+                "productCode": "goland",
+                "code": "goland-2025.1",
+                "description": "GoLand 2025.1"
             }
             """;
 
