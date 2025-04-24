@@ -5,11 +5,9 @@ import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Fallback;
 import org.springframework.stereotype.Component;
 
 @Component
-@Fallback
 @ConditionalOnProperty(name = "ft.events.publisher", havingValue = "DUMB")
 public class LogEventPublisher implements EventPublisher {
     private static final Logger log = LoggerFactory.getLogger(LogEventPublisher.class);

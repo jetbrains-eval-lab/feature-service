@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
+import com.sivalabs.ft.features.EventPublisherTestConfiguration;
 import jakarta.persistence.EntityNotFoundException;
+
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +15,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 
 @SpringBootTest
-@Import(DatabaseConfiguration.class)
+@Import({DatabaseConfiguration.class, EventPublisherTestConfiguration.class})
 @TestPropertySource("classpath:application-test.properties")
 class ProductServiceTest {
 

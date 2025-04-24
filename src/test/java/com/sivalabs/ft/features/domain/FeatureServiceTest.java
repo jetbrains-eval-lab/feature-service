@@ -8,16 +8,14 @@ import com.sivalabs.ft.features.integration.EventPublisher;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import org.junit.jupiter.api.BeforeEach;
+
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.mockito.internal.verification.VerificationModeFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
 @Import(DatabaseConfiguration.class)
@@ -27,13 +25,8 @@ class FeatureServiceTest {
     @Autowired
     FeatureService featureService;
 
-    @MockitoBean
+    @Autowired
     EventPublisher eventPublisher;
-
-    @BeforeEach
-    public void setupMocks() {
-        Mockito.reset(eventPublisher);
-    }
 
     @Test
     void shouldGetFeaturesByReleaseCode() {

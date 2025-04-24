@@ -3,6 +3,8 @@ package com.sivalabs.ft.features;
 import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT;
 
 import com.sivalabs.ft.features.integration.EventPublisher;
+import org.junit.jupiter.api.BeforeEach;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,7 +15,7 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
 @SpringBootTest(webEnvironment = RANDOM_PORT)
 @AutoConfigureMockMvc
-@Import(DatabaseConfiguration.class)
+@Import({DatabaseConfiguration.class, EventPublisherTestConfiguration.class})
 @TestPropertySource("classpath:application-test.properties")
 public abstract class AbstractIT {
 
@@ -22,4 +24,9 @@ public abstract class AbstractIT {
 
     @Autowired
     protected MockMvcTester mvc;
+
+    @BeforeEach
+    public void setupMocks() {
+        Mockito.reset(eventPublisher);
+    }
 }
