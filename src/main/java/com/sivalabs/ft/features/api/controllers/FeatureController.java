@@ -57,7 +57,8 @@ class FeatureController {
                                         array = @ArraySchema(schema = @Schema(implementation = FeatureDto.class))))
             })
     List<FeatureDto> getFeatures(@RequestParam("releaseCode") String releaseCode) {
-        return featureService.findFeatures(releaseCode).stream()
+        List<Feature> featureList = featureService.findFeatures(releaseCode);
+        return featureList.stream()
                 .map(featureMapper::toDto)
                 .toList();
     }

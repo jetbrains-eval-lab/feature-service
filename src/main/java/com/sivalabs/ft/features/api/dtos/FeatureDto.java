@@ -7,6 +7,7 @@ public record FeatureDto(
         Long id,
         String code,
         String title,
+        ProductDto product,
         String description,
         String status,
         String assignedTo,
