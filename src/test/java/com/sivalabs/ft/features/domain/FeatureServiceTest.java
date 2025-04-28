@@ -1,21 +1,23 @@
 package com.sivalabs.ft.features.domain;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
-
 import com.sivalabs.ft.features.DatabaseConfiguration;
 import com.sivalabs.ft.features.integration.EventPublisher;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.mockito.internal.verification.VerificationModeFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest
 @Import(DatabaseConfiguration.class)
@@ -27,6 +29,11 @@ class FeatureServiceTest {
 
     @Autowired
     EventPublisher eventPublisher;
+
+    @BeforeEach
+    void resetMocks() {
+        Mockito.reset(eventPublisher);
+    }
 
     @Test
     void shouldGetFeaturesByReleaseCode() {

@@ -29,11 +29,11 @@ public class FeatureMapperTest {
 
     @Test
     void shouldMapFeaturesWithProductDetails() {
-        List<Feature> features = featureRepository.findByReleaseCode("IJ-2023.3.8");
+        List<Feature> features = featureRepository.findByReleaseCode("GO-2024.2.3");
         List<FeatureDto> mappedFeatures = features.stream().map(featureMapper::toDto).toList();
         mappedFeatures.forEach(dto -> {
             assertThat(dto.product()).isNotNull();
-            assertThat(dto.product().name()).isEqualTo("IntelliJ IDEA");
+            assertThat(dto.product().name()).isEqualTo("GoLand");
         });
     }
 }

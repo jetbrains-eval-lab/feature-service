@@ -21,5 +21,5 @@ insert into features (id, product_id, release_id, code, title, description, stat
 (1, 1, 1, 'IJ-10001', 'Redesign Structure Tool Window', 'Redesign Structure Tool Window to show logical structure', 'NEW', 'siva', 'john', '2024-02-24'),
 (2, 1, 1, 'IJ-10002', 'SDJ Repository Method AutoCompletion', 'Spring Data JPA Repository Method AutoCompletion as you type', 'NEW', 'john', 'siva', '2024-03-14'),
 (3, 1, 1, 'IJ-10003', 'New JPA Repository On Completion', 'Create Spring Data JPA Repository as you type', 'NEW', 'john', 'siva', '2024-03-14'),
-(4, 2, null, 'GO-10001', 'Make Go to Type and Go to Symbol dumb aware', 'Make Go to Type and Go to Symbol dumb aware', 'IN_PROGRESS', 'paul', 'remo', '2024-01-14')
+(4, 2, 3, 'GO-10001', 'Make Go to Type and Go to Symbol dumb aware', 'Make Go to Type and Go to Symbol dumb aware', 'IN_DEVELOPMENT', 'paul', 'remo', '2024-01-14')
 ;
