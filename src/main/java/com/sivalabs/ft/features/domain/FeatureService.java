@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
 public class FeatureService {
     private final ReleaseRepository releaseRepository;
     private final FeatureRepository featureRepository;
@@ -32,7 +32,6 @@ public class FeatureService {
         return featureRepository.findByCode(code);
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public List<Feature> findFeatures(String releaseCode) {
         List<Feature> featureList = featureRepository.findByReleaseCode(releaseCode);
         return featureList;
