@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
 import com.sivalabs.ft.features.EventPublisherTestConfiguration;
+import com.sivalabs.ft.features.domain.product.*;
 import jakarta.persistence.EntityNotFoundException;
 
 import java.util.Optional;

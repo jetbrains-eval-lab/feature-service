@@ -1,5 +1,9 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.domain.feature;
 
+import com.sivalabs.ft.features.domain.release.Release;
+import com.sivalabs.ft.features.domain.release.ReleaseRepository;
+import com.sivalabs.ft.features.domain.product.Product;
+import com.sivalabs.ft.features.domain.product.ProductRepository;
 import com.sivalabs.ft.features.integration.EventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;

@@ -1,13 +1,18 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.domain.release;
 
+import com.sivalabs.ft.features.domain.feature.Feature;
+import com.sivalabs.ft.features.domain.product.Product;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotNull;
@@ -18,31 +23,31 @@ import java.util.Set;
 import org.hibernate.annotations.ColumnDefault;
 
 @Entity
-@Table(name = "products")
-public class Product {
+@Table(name = "releases")
+public class Release {
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "products_id_gen")
-    @SequenceGenerator(name = "products_id_gen", sequenceName = "product_id_seq")
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "releases_id_gen")
+    @SequenceGenerator(name = "releases_id_gen", sequenceName = "release_id_seq")
     @Column(name = "id", nullable = false)
     private Long id;
+
+    @NotNull @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "product_id", nullable = false)
+    private Product product;
 
     @Size(max = 50)
     @NotNull @Column(name = "code", nullable = false, length = 50)
     private String code;
 
-    @Size(max = 255)
-    @NotNull @Column(name = "name", nullable = false)
-    private String name;
-
     @Column(name = "description", length = Integer.MAX_VALUE)
     private String description;
 
-    @Column(name = "image_url")
-    private String imageUrl;
+    @NotNull @Column(name = "status", nullable = false, length = 50)
+    @Enumerated(EnumType.STRING)
+    private ReleaseStatus status;
 
-    @NotNull @ColumnDefault("false")
-    @Column(name = "disabled", nullable = false)
-    private Boolean disabled = false;
+    @Column(name = "released_at")
+    private Instant releasedAt;
 
     @Size(max = 255)
     @NotNull @Column(name = "created_by", nullable = false)
@@ -59,22 +64,8 @@ public class Product {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    @OneToMany(mappedBy = "product")
-    private Set<Release> releases = new LinkedHashSet<>();
-
-    @PrePersist
-    public void prePersist() {
-        if (createdAt == null) {
-            this.createdAt = Instant.now();
-        }
-    }
-
-    @PreUpdate
-    public void preUpdate() {
-        if (updatedAt == null) {
-            this.updatedAt = Instant.now();
-        }
-    }
+    @OneToMany(mappedBy = "release")
+    private Set<Feature> features = new LinkedHashSet<>();
 
     public Long getId() {
         return id;
@@ -82,6 +73,14 @@ public class Product {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Product getProduct() {
+        return product;
+    }
+
+    public void setProduct(Product product) {
+        this.product = product;
     }
 
     public String getCode() {
@@ -92,14 +91,6 @@ public class Product {
         this.code = code;
     }
 
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
     public String getDescription() {
         return description;
     }
@@ -108,20 +99,20 @@ public class Product {
         this.description = description;
     }
 
-    public String getImageUrl() {
-        return imageUrl;
+    public ReleaseStatus getStatus() {
+        return status;
     }
 
-    public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+    public void setStatus(ReleaseStatus status) {
+        this.status = status;
     }
 
-    public Boolean getDisabled() {
-        return disabled;
+    public Instant getReleasedAt() {
+        return releasedAt;
     }
 
-    public void setDisabled(Boolean disabled) {
-        this.disabled = disabled;
+    public void setReleasedAt(Instant releasedAt) {
+        this.releasedAt = releasedAt;
     }
 
     public String getCreatedBy() {
@@ -156,11 +147,11 @@ public class Product {
         this.updatedAt = updatedAt;
     }
 
-    public Set<Release> getReleases() {
-        return releases;
+    public Set<Feature> getFeatures() {
+        return features;
     }
 
-    public void setReleases(Set<Release> releases) {
-        this.releases = releases;
+    public void setFeatures(Set<Feature> features) {
+        this.features = features;
     }
 }

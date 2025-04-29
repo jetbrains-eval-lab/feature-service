@@ -1,11 +1,12 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.domain.release;
 
-import java.util.List;
-import java.util.Optional;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.ListCrudRepository;
 
-interface ReleaseRepository extends ListCrudRepository<Release, Long> {
+import java.util.List;
+import java.util.Optional;
+
+public interface ReleaseRepository extends ListCrudRepository<Release, Long> {
     Optional<Release> findByCode(String code);
 
     List<Release> findByProductCode(String productCode);

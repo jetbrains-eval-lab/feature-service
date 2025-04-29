@@ -1,8 +1,12 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.domain.release;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+
+import com.sivalabs.ft.features.domain.feature.FeatureRepository;
+import com.sivalabs.ft.features.domain.product.Product;
+import com.sivalabs.ft.features.domain.product.ProductRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

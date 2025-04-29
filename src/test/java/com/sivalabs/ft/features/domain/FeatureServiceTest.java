@@ -1,6 +1,7 @@
 package com.sivalabs.ft.features.domain;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
+import com.sivalabs.ft.features.domain.feature.*;
 import com.sivalabs.ft.features.integration.EventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

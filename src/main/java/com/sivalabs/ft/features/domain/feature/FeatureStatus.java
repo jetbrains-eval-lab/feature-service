@@ -1,4 +1,4 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.domain.feature;
 
 public enum FeatureStatus {
     NEW,

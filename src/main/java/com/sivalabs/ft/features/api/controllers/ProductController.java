@@ -2,9 +2,9 @@ package com.sivalabs.ft.features.api.controllers;
 
 import com.sivalabs.ft.features.api.dtos.ProductDto;
 import com.sivalabs.ft.features.api.utils.SecurityUtils;
-import com.sivalabs.ft.features.domain.CreateProductCommand;
-import com.sivalabs.ft.features.domain.ProductService;
-import com.sivalabs.ft.features.domain.UpdateProductCommand;
+import com.sivalabs.ft.features.domain.product.CreateProductCommand;
+import com.sivalabs.ft.features.domain.product.ProductService;
+import com.sivalabs.ft.features.domain.product.UpdateProductCommand;
 import com.sivalabs.ft.features.mappers.ProductMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;

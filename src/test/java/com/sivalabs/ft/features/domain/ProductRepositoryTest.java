@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
 import java.util.Optional;
+
+import com.sivalabs.ft.features.domain.product.Product;
+import com.sivalabs.ft.features.domain.product.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;

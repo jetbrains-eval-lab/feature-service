@@ -1,7 +1,7 @@
 package com.sivalabs.ft.features.integration;
 
 import com.sivalabs.ft.features.ApplicationProperties;
-import com.sivalabs.ft.features.domain.Feature;
+import com.sivalabs.ft.features.domain.feature.Feature;
 import java.time.Instant;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;

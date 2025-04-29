@@ -2,7 +2,7 @@ package com.sivalabs.ft.features.api.controllers;
 
 import com.sivalabs.ft.features.api.dtos.FeatureDto;
 import com.sivalabs.ft.features.api.utils.SecurityUtils;
-import com.sivalabs.ft.features.domain.*;
+import com.sivalabs.ft.features.domain.feature.*;
 import com.sivalabs.ft.features.mappers.FeatureMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;

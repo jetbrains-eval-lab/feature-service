@@ -1,6 +1,6 @@
 package com.sivalabs.ft.features.integration;
 
-import com.sivalabs.ft.features.domain.Feature;
+import com.sivalabs.ft.features.domain.feature.Feature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

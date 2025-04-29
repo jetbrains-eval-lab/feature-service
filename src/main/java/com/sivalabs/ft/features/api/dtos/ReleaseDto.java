@@ -1,6 +1,6 @@
 package com.sivalabs.ft.features.api.dtos;
 
-import com.sivalabs.ft.features.domain.ReleaseStatus;
+import com.sivalabs.ft.features.domain.release.ReleaseStatus;
 import java.io.Serializable;
 import java.time.Instant;
 

@@ -1,4 +1,4 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.domain.product;
 
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;

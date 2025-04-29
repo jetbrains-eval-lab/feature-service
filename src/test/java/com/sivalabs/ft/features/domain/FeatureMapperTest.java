@@ -3,6 +3,8 @@ package com.sivalabs.ft.features.domain;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
 import com.sivalabs.ft.features.api.dtos.FeatureDto;
+import com.sivalabs.ft.features.domain.feature.Feature;
+import com.sivalabs.ft.features.domain.feature.FeatureRepository;
 import com.sivalabs.ft.features.mappers.FeatureMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

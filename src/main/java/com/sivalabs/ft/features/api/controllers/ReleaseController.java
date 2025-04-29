@@ -2,10 +2,10 @@ package com.sivalabs.ft.features.api.controllers;
 
 import com.sivalabs.ft.features.api.dtos.ReleaseDto;
 import com.sivalabs.ft.features.api.utils.SecurityUtils;
-import com.sivalabs.ft.features.domain.CreateReleaseCommand;
-import com.sivalabs.ft.features.domain.ReleaseService;
-import com.sivalabs.ft.features.domain.ReleaseStatus;
-import com.sivalabs.ft.features.domain.UpdateReleaseCommand;
+import com.sivalabs.ft.features.domain.release.CreateReleaseCommand;
+import com.sivalabs.ft.features.domain.release.ReleaseService;
+import com.sivalabs.ft.features.domain.release.ReleaseStatus;
+import com.sivalabs.ft.features.domain.release.UpdateReleaseCommand;
 import com.sivalabs.ft.features.mappers.ReleaseMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;

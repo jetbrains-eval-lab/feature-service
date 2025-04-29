@@ -1,7 +1,7 @@
 package com.sivalabs.ft.features.integration;
 
-import com.sivalabs.ft.features.domain.Feature;
-import com.sivalabs.ft.features.domain.FeatureStatus;
+import com.sivalabs.ft.features.domain.feature.Feature;
+import com.sivalabs.ft.features.domain.feature.FeatureStatus;
 import java.time.Instant;
 
 record FeatureCreatedEvent(
