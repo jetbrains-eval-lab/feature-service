@@ -1,6 +1,8 @@
 package com.sivalabs.ft.features.config;
 
 import com.sivalabs.ft.features.integration.PublisherType;
+import java.util.HashMap;
+import java.util.Map;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.context.annotation.Bean;
@@ -16,9 +18,6 @@ import org.springframework.security.config.annotation.web.configurers.CorsConfig
 import org.springframework.security.config.annotation.web.configurers.CsrfConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-
-import java.util.HashMap;
-import java.util.Map;
 
 @Configuration
 @EnableWebSecurity
@@ -53,7 +52,8 @@ class PropertyFallbackPostProcessor implements EnvironmentPostProcessor {
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment env, SpringApplication app) {
         String publisherType = env.getProperty("ft.events.publisher");
-        if (!PublisherType.KAFKA.name().equals(publisherType) && !PublisherType.DUMB.name().equals(publisherType)) {
+        if (!PublisherType.KAFKA.name().equals(publisherType)
+                && !PublisherType.DUMB.name().equals(publisherType)) {
             MutablePropertySources propertySources = env.getPropertySources();
             Map<String, Object> map = new HashMap<>();
             map.put("ft.events.publisher", PublisherType.DUMB.name());

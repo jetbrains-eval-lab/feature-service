@@ -9,4 +9,3 @@ public record ApplicationProperties(EventsProperties events) {
     public record EventsProperties(
             String newFeatures, String updatedFeatures, String deletedFeatures, PublisherType publisher) {}
 }
-

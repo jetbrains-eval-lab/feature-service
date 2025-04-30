@@ -7,7 +7,6 @@ import com.sivalabs.ft.features.DatabaseConfiguration;
 import com.sivalabs.ft.features.EventPublisherTestConfiguration;
 import com.sivalabs.ft.features.domain.product.*;
 import jakarta.persistence.EntityNotFoundException;
-
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

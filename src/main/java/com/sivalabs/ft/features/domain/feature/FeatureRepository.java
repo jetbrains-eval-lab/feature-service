@@ -1,12 +1,11 @@
 package com.sivalabs.ft.features.domain.feature;
 
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.ListCrudRepository;
-
-import java.util.List;
-import java.util.Optional;
 
 public interface FeatureRepository extends ListCrudRepository<Feature, Long> {
     @EntityGraph(attributePaths = {"product"})

@@ -14,5 +14,4 @@ public class EventPublisherTestConfiguration {
     public EventPublisher eventPublisher() {
         return Mockito.mock(EventPublisher.class);
     }
-
 }

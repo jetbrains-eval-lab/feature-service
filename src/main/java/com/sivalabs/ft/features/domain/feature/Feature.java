@@ -1,13 +1,12 @@
 package com.sivalabs.ft.features.domain.feature;
 
-import com.sivalabs.ft.features.domain.release.Release;
 import com.sivalabs.ft.features.domain.product.Product;
+import com.sivalabs.ft.features.domain.release.Release;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import org.hibernate.annotations.ColumnDefault;
-
 import java.time.Instant;
+import org.hibernate.annotations.ColumnDefault;
 
 @Entity
 @Table(name = "features")
