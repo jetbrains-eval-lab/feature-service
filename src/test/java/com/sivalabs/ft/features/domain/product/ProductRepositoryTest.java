@@ -1,10 +1,9 @@
-package com.sivalabs.ft.features.domain;
+package com.sivalabs.ft.features.domain.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sivalabs.ft.features.DatabaseConfiguration;
-import com.sivalabs.ft.features.domain.product.Product;
-import com.sivalabs.ft.features.domain.product.ProductRepository;
+
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
