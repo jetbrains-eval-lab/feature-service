@@ -38,7 +38,7 @@ class FeatureServiceTest {
     @Test
     void shouldGetFeaturesByReleaseCode() {
         List<Feature> features = featureService.findFeatures("IJ-2023.3.8");
-        assertThat(features).hasSize(2);
+        assertThat(features).hasSize(3);
     }
 
     @Test
