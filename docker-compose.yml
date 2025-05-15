@@ -9,3 +9,12 @@ services:
       - "5432"
     profiles:
       - dev
+  mongodb:
+    image: mongodb/mongodb-community-server:6.0.18-ubi9
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: root
+      MONGODB_INITDB_ROOT_PASSWORD: example
+    ports:
+      - "27017"
+    profiles:
+        - dev
