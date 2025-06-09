@@ -16,7 +16,8 @@ public class ProductService {
     }
 
     public List<Product> findAllProducts() {
-        return productRepository.findAll();
+        List<Product> products = productRepository.findAll();
+        return products;
     }
 
     public Optional<Product> findProductByCode(String code) {
