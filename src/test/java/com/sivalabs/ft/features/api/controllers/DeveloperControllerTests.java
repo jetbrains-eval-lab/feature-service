@@ -1,6 +1,7 @@
 package com.sivalabs.ft.features.api.controllers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 
 import com.sivalabs.ft.features.AbstractIT;
 import com.sivalabs.ft.features.WithMockOAuth2User;
@@ -44,6 +45,15 @@ class DeveloperControllerTests extends AbstractIT {
 
     @Test
     @WithMockOAuth2User(username = "user")
+    void shouldReturn403IfUserIsNotAdmin() {
+        var result = mvc.delete().uri("/api/developers/{id}", 100).exchange();
+        assertThat(result).hasStatus(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @WithMockOAuth2User(
+            username = "user",
+            roles = {"ADMIN"})
     void shouldCreateNewDeveloper() {
         var payload =
                 """
@@ -79,6 +89,27 @@ class DeveloperControllerTests extends AbstractIT {
 
     @Test
     @WithMockOAuth2User(username = "user")
+    void shouldReturn403CreateNewDeveloperNotByAdmin() {
+        var payload =
+                """
+                {
+                    "name": "New Developer",
+                    "emailAddress": "new@example.com"
+                }
+                """;
+
+        var result = mvc.post()
+                .uri("/api/developers")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(payload)
+                .exchange();
+        assertThat(result).hasStatus(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @WithMockOAuth2User(
+            username = "user",
+            roles = {"ADMIN"})
     void shouldUpdateDeveloper() {
         var payload =
                 """
@@ -110,6 +141,28 @@ class DeveloperControllerTests extends AbstractIT {
 
     @Test
     @WithMockOAuth2User(username = "user")
+    void shouldReturn403OnUpdateDeveloperByUser() {
+        var payload =
+                """
+                {
+                    "id": 100,
+                    "name": "Updated Developer",
+                    "emailAddress": "updated@example.com"
+                }
+                """;
+
+        var result = mvc.put()
+                .uri("/api/developers/{id}", 100)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(payload)
+                .exchange();
+        assertThat(result).hasStatus(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @WithMockOAuth2User(
+            username = "user",
+            roles = {"ADMIN"})
     void shouldReturn404WhenUpdatingNonExistentDeveloper() {
         var payload =
                 """
@@ -129,7 +182,9 @@ class DeveloperControllerTests extends AbstractIT {
     }
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    @WithMockOAuth2User(
+            username = "user",
+            roles = {"ADMIN"})
     void shouldDeleteDeveloper() {
         // First create a developer to delete
         var createPayload =
@@ -158,7 +213,41 @@ class DeveloperControllerTests extends AbstractIT {
     }
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    void shouldReturn403OnDeleteDeveloperByUser() {
+        // First create a developer to delete
+        var createPayload =
+                """
+                {
+                    "name": "Developer to Delete",
+                    "emailAddress": "delete@example.com"
+                }
+                """;
+
+        var createResult = mvc.post()
+                .uri("/api/developers")
+                .with(user("user").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(createPayload)
+                .exchange();
+        String location = createResult.getMvcResult().getResponse().getHeader("Location");
+        var id = location.substring(location.lastIndexOf("/") + 1);
+
+        // Now delete it
+        var deleteResult = mvc.delete()
+                .with(user("user").roles("USER"))
+                .uri("/api/developers/{id}", id)
+                .exchange();
+        assertThat(deleteResult).hasStatus(HttpStatus.FORBIDDEN);
+
+        // Verify deletion
+        var getResult = mvc.get().uri("/api/developers/{id}", id).exchange();
+        assertThat(getResult).hasStatus(HttpStatus.OK);
+    }
+
+    @Test
+    @WithMockOAuth2User(
+            username = "user",
+            roles = {"ADMIN"})
     void shouldReturn404WhenDeletingNonExistentDeveloper() {
         var result = mvc.delete().uri("/api/developers/{id}", 999).exchange();
         assertThat(result).hasStatus(HttpStatus.NOT_FOUND);
