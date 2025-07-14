@@ -1,4 +1,6 @@
 delete from favorite_features;
+delete from comments;
+delete from feature_reactions;
 delete from features;
 delete from releases;
 delete from products;
@@ -17,13 +19,15 @@ insert into releases (id, product_id, code, description, status, created_by, cre
 (3, 2, 'GO-2024.2.3', 'GoLand 2024.2.4', 'RELEASED', 'admin','2024-02-15'),
 (4, 3, 'WEB-2024.2.3', 'WebStorm 2024.2.4', 'RELEASED', 'admin','2024-02-20'),
 (5, 4, 'PY-2024.2.3', 'PyCharm 2024.2.4', 'RELEASED', 'admin','2024-02-20'),
-(6, 5, 'RIDER-2024.2.6', 'Rider 2024.2.6', 'RELEASED', 'admin','2024-02-16')
+(6, 5, 'RIDER-2024.2.6', 'Rider 2024.2.6', 'RELEASED', 'admin','2024-02-16'),
+(7, 5, 'IDEA-2025.2', 'IDEA-2025.2', 'RELEASED', 'admin','2025-07-14')
 ;
 
 insert into features (id, product_id, release_id, code, title, description, status, created_by, assigned_to, created_at) values
 (1, 1, 1, 'IDEA-1', 'Redesign Structure Tool Window', 'Redesign Structure Tool Window to show logical structure', 'NEW', 'siva', 'marcobehler', '2024-02-24'),
 (2, 1, 1, 'IDEA-2', 'SDJ Repository Method AutoCompletion', 'Spring Data JPA Repository Method AutoCompletion as you type', 'NEW', 'daniiltsarev', 'siva', '2024-03-14'),
-(3, 2, null, 'GO-3', 'Make Go to Type and Go to Symbol dumb aware', 'Make Go to Type and Go to Symbol dumb aware', 'IN_PROGRESS', 'antonarhipov', 'andreybelyaev', '2024-01-14')
+(3, 2, null, 'GO-3', 'Make Go to Type and Go to Symbol dumb aware', 'Make Go to Type and Go to Symbol dumb aware', 'IN_PROGRESS', 'antonarhipov', 'andreybelyaev', '2024-01-14'),
+(4, 1, 7, 'EVAL-1', 'Eval scenarios', 'Implement Eval scenarios', 'NEW', 's.v.', 's.v.', '2025-07-12')
 ;
 
 insert into favorite_features (id, feature_id, user_id) values
