@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CommentControllerTests extends AbstractIT {
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    @WithMockOAuth2User(username = "s.v.", roles = "FT_USER")
     void createComment() {
         var payload =
                 """
@@ -33,7 +33,27 @@ class CommentControllerTests extends AbstractIT {
     }
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    @WithMockOAuth2User(username = "s.v.")
+    void createCommentByUnauthenticatedUser() {
+        var payload =
+                """
+                {
+                    "text": "This is a test comment on a feature",
+                    "featureCode": "EVAL-1",
+                    "releaseCode": "IDEA-2025.2"
+                }
+                """;
+
+        var result = mvc.post()
+                .uri("/api/comments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(payload)
+                .exchange();
+        assertThat(result).hasStatus(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @WithMockOAuth2User(username = "s.v.", roles = "FT_USER")
     void createCommentWithoutFeatureOrRelease() {
         var payload =
                 """
@@ -51,7 +71,7 @@ class CommentControllerTests extends AbstractIT {
     }
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    @WithMockOAuth2User(username = "s.v.", roles = "FT_USER")
     void addReplyToComment() {
         // First create a comment
         var commentPayload =
@@ -90,7 +110,7 @@ class CommentControllerTests extends AbstractIT {
     }
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    @WithMockOAuth2User(username = "s.v.", roles = "FT_USER")
     void addReplyToNonExistentComment() {
         var replyPayload =
                 """
@@ -108,7 +128,7 @@ class CommentControllerTests extends AbstractIT {
     }
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    @WithMockOAuth2User(username = "s.v.")
     void getCommentsByFeature() {
         var result = mvc.get()
                 .uri("/api/comments/feature/{featureCode}", "EVAL-1")
@@ -117,7 +137,7 @@ class CommentControllerTests extends AbstractIT {
     }
 
     @Test
-    @WithMockOAuth2User(username = "user")
+    @WithMockOAuth2User(username = "s.v.", roles = "FT_USER")
     void getRepliesForComment() {
         // Create a comment
         var commentPayload =
