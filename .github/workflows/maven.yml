@@ -2,16 +2,14 @@ name: Maven Build
 
 on:
   push:
-    branches: [ "main", "feature/*", "bugfix/*" ]
+    branches: [ "main" ]
 
   pull_request:
-    branches: ["main"]
+    branches: [ "main", "scenario/*", "eval/*", "feature/*" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      DOCKER_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ft-feature-service
     steps:
       - uses: actions/checkout@v4
 
@@ -22,22 +20,30 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Make Maven wrapper executable
-        run: chmod +x mvnw
-
       - name: Build with Maven
-        run: ./mvnw -ntp verify
+        run: mvn -B compile --file pom.xml
 
-      - if: ${{ github.ref == 'refs/heads/main' }}
-        name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - if: ${{ github.ref == 'refs/heads/main' }}
-        name: Build and Publish Docker Image
+      - name: Extract test names from PR body
+        id: extract_tests
         run: |
-          ./mvnw spring-boot:build-image -DskipTests
-          echo "Pushing the image $DOCKER_IMAGE_NAME to Docker Hub..."
-          docker push --all-tags $DOCKER_IMAGE_NAME
+          PR_BODY="${{ github.event.pull_request.body }}"
+
+          FAIL_TO_PASS=$(echo "$PR_BODY" | grep -E '^FAIL_TO_PASS:' | cut -d':' -f2- | xargs)
+          PASS_TO_PASS=$(echo "$PR_BODY" | grep -E '^PASS_TO_PASS:' | cut -d':' -f2- | xargs)
+
+          TESTS="$FAIL_TO_PASS,$PASS_TO_PASS"
+          TESTS=$(echo "$TESTS" | sed 's/^[,]*//;s/[,]*$//')
+
+          echo "tests=$TESTS" >> $GITHUB_OUTPUT
+
+      - name: Show tests to run
+        run: |
+          echo "Running tests: ${{ steps.extract_tests.outputs.tests }}"
+
+      - name: Run Maven tests
+        if: ${{ steps.extract_tests.outputs.tests != '' }}
+        run: mvn -B -Dtest="${{ steps.extract_tests.outputs.tests }}" test
+
+      - name: Run All Tests
+        if: ${{ steps.extract_tests.outputs.tests == '' }}
+        run: mvn -B test --file pom.xml
