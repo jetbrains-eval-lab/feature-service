@@ -62,8 +62,7 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const core   = require('@actions/core');
+          script: |          
             const ctx    = context;                   // action context
             const gh     = github;                    // REST client
             const issuePat = /#(\d+)/g;
