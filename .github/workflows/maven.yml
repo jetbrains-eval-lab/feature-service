@@ -2,7 +2,7 @@ name: Maven Build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "scenario/*", "eval/*", "feature/*" ]
 
   pull_request:
     branches: [ "main", "scenario/*", "eval/*", "feature/*" ]
