@@ -3,13 +3,18 @@ name: Maven Build
 on:
   push:
     branches: [ "main", "scenario/*", "eval/*", "feature/*" ]
-
   pull_request:
     branches: [ "main", "scenario/*", "eval/*", "feature/*" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # NEW – allow the workflow-token to write issue comments
+    permissions:
+      issues: write
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -47,3 +52,54 @@ jobs:
       - name: Run All Tests
         if: ${{ steps.extract_tests.outputs.tests == '' }}
         run: mvn -B test --file pom.xml
+
+      # Add a comment to the related issue with build result
+      - name: Comment build status to linked issue
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const core   = require('@actions/core');
+            const ctx    = context;                   // action context
+            const gh     = github;                    // REST client
+            const issuePat = /#(\d+)/g;
+            let issueNum  = null;
+            let m;
+
+            // Try to detect an issue from pull-request title/body
+            if (ctx.payload.pull_request) {
+              const prTxt = `${ctx.payload.pull_request.title}\n${ctx.payload.pull_request.body}`;
+              while ((m = issuePat.exec(prTxt)) !== null) {
+                issueNum = parseInt(m[1], 10);
+                break;
+              }
+            }
+
+            // Fallback – scan commit messages of this push/PR
+            if (!issueNum && ctx.payload.commits) {
+              for (const c of ctx.payload.commits) {
+                while ((m = issuePat.exec(c.message)) !== null) {
+                  issueNum = parseInt(m[1], 10);
+                  break;
+                }
+                if (issueNum) break;
+              }
+            }
+
+            if (!issueNum) {
+              core.info('No issue reference (#123) found – nothing to update.');
+              return;
+            }
+
+            const body = `🚀 **Build** [${process.env.GITHUB_WORKFLOW}](${process.env.WORKFLOW_URL}) finished with status **${process.env.JOB_STATUS.toUpperCase()}**.`;
+            await gh.rest.issues.createComment({
+              owner: ctx.repo.owner,
+              repo:  ctx.repo.repo,
+              issue_number: issueNum,
+              body
+            });
+        # end of github-script step
