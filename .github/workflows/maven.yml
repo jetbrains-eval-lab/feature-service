@@ -1,4 +1,4 @@
-name: Maven Build
+name: Run Tests
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
             
             if (!issueNum) { core.info('No #issue reference found.'); return; }
             
-            const body = `⏳ **Build** [${process.env.GITHUB_WORKFLOW}](${process.env.RUN_URL}) has **started**…`;
+            const body = `⏳ **[${process.env.GITHUB_WORKFLOW}](${process.env.RUN_URL})** has **started**…`;
             const { data: comment } = await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo:  context.repo.repo,
@@ -116,7 +116,7 @@ jobs:
               cancelled: '🟡'
             }[process.env.JOB_STATUS] || '🟡';
             
-            const body = `${statusEmoji} **Build** [${process.env.GITHUB_WORKFLOW}](${process.env.RUN_URL}) finished with status **${process.env.JOB_STATUS.toUpperCase()}**.`;
+            const body = `${statusEmoji} **[${process.env.GITHUB_WORKFLOW}](${process.env.RUN_URL})** finished with status **${process.env.JOB_STATUS.toUpperCase()}**.`;
             
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
