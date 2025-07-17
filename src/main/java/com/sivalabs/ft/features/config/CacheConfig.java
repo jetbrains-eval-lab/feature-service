@@ -1,43 +1,36 @@
 package com.sivalabs.ft.features.config;
 
-import org.ehcache.config.builders.CacheConfigurationBuilder;
-import org.ehcache.config.builders.ExpiryPolicyBuilder;
-import org.ehcache.config.builders.ResourcePoolsBuilder;
-import org.ehcache.jsr107.Eh107Configuration;
-import org.springframework.boot.autoconfigure.cache.JCacheManagerCustomizer;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.concurrent.ConcurrentMapCache;
+import org.springframework.cache.support.SimpleCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
-import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Cache configuration class.
- * Spring Boot auto-configures the cache manager based on the properties in application.properties
- * and the presence of ehcache.xml in the classpath.
+ * This class configures a simple in-memory cache manager
+ * that uses ConcurrentHashMap for storing cache entries.
  */
 @Configuration
 @EnableCaching
 public class CacheConfig {
 
     @Bean
-    public JCacheManagerCustomizer cacheManagerCustomizer() {
-        return cacheManager -> {
-            cacheManager.createCache("featureById", cacheConfiguration());
-            cacheManager.createCache("featuresByStatus", cacheConfiguration());
-        };
-    }
-
-    private javax.cache.configuration.Configuration<Object, Object> cacheConfiguration() {
-        return Eh107Configuration.fromEhcacheCacheConfiguration(
-                CacheConfigurationBuilder
-                        .newCacheConfigurationBuilder(
-                                Object.class,
-                                Object.class,
-                                ResourcePoolsBuilder.heap(1000)
-                        )
-                        .withExpiry(ExpiryPolicyBuilder.timeToLiveExpiration(Duration.ofMinutes(10)))
-                        .build()
+    @Primary
+    public CacheManager cacheManager() {
+        SimpleCacheManager cacheManager = new SimpleCacheManager();
+        List<Cache> caches = Arrays.asList(
+            new ConcurrentMapCache("featureById"),
+            new ConcurrentMapCache("featuresByStatus"),
+            new ConcurrentMapCache("featuresByAssignee")
         );
+        cacheManager.setCaches(caches);
+        return cacheManager;
     }
 }

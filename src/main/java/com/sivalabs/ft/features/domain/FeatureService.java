@@ -165,4 +165,16 @@ public class FeatureService {
                 .filter(feature -> feature.getStatus() == status)
                 .toList();
     }
+
+    @Transactional(readOnly = true)
+    @Cacheable(value = "featuresByAssignee", key = "#assignee")
+    public List<Feature> findByAssignee(String assignee) {
+        logger.debug("Fetching features assigned to: {} (Cache miss)", assignee);
+        if (assignee == null) {
+            return List.of();
+        }
+        return featureRepository.findAll().stream()
+                .filter(feature -> assignee.equals(feature.getAssignedTo()))
+                .toList();
+    }
 }

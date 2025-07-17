@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 2. Calls with different parameters return different results (cache miss)
  */
 @SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class})
 @Sql(scripts = {"/test-data.sql"})
 @Transactional
 class FeatureServiceCacheTest {
@@ -70,6 +70,26 @@ class FeatureServiceCacheTest {
         List<Feature> features1 = featureService.findByStatus(status1);
         FeatureStatus status2 = FeatureStatus.IN_PROGRESS;
         List<Feature> features2 = featureService.findByStatus(status2);
+
+        assertThat(features1).isNotEqualTo(features2);
+    }
+
+    @Test
+    void findByAssigneeForRepeatedCalls() {
+        String assignee = "andreybelyaev";
+        List<Feature> features1 = featureService.findByAssignee(assignee);
+        List<Feature> features2 = featureService.findByAssignee(assignee);
+
+        // Verify both calls returned the same result (cache hit)
+        assertThat(features1).isEqualTo(features2);
+    }
+
+    @Test
+    void findByAssigneeForDifferentAssignees() {
+        String assignee1 = "siva";
+        List<Feature> features1 = featureService.findByAssignee(assignee1);
+        String assignee2 = "andreybelyaev";
+        List<Feature> features2 = featureService.findByAssignee(assignee2);
 
         assertThat(features1).isNotEqualTo(features2);
     }
