@@ -83,7 +83,7 @@ public class ReleaseService {
         if (!releaseRepository.existsByCode(code)) {
             throw new IllegalArgumentException("Release with code " + code + " not found");
         }
-        featureRepository.deleteByReleaseCode(code);
+        featureRepository.unlinkReleaseCode(code);
         releaseRepository.deleteByCode(code);
     }
 }
