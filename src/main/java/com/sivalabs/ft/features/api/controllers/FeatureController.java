@@ -55,8 +55,9 @@ class FeatureController {
 
     @GetMapping("")
     @Operation(
-            summary = "Find features by product or release",
-            description = "Find features by product or release",
+            summary = "Find features by product, release, or tags",
+            description =
+                    "Find features by product, release, or tags. If tagIds is provided, returns all features matching any of the given tags. Otherwise, returns features by product or release.",
             responses = {
                 @ApiResponse(
                         responseCode = "200",
@@ -68,19 +69,30 @@ class FeatureController {
             })
     List<FeatureDto> getFeatures(
             @RequestParam(value = "productCode", required = false) String productCode,
-            @RequestParam(value = "releaseCode", required = false) String releaseCode) {
-        // Only one of productCode or releaseCode should be provided
-        if ((StringUtils.isBlank(productCode) && StringUtils.isBlank(releaseCode))
-                || (StringUtils.isNotBlank(productCode) && StringUtils.isNotBlank(releaseCode))) {
+            @RequestParam(value = "releaseCode", required = false) String releaseCode,
+            @RequestParam(value = "tagIds", required = false) List<Long> tagIds) {
+        String username = SecurityUtils.getCurrentUsername();
+
+        // Only one of productCode or releaseCode or tagIds should be provided
+        if ((StringUtils.isBlank(productCode)
+                        && StringUtils.isBlank(releaseCode)
+                        && (tagIds == null || tagIds.isEmpty()))
+                || (StringUtils.isNotBlank(productCode)
+                        && StringUtils.isNotBlank(releaseCode)
+                        && tagIds != null
+                        && !tagIds.isEmpty())) {
             // TODO: Return 400 Bad Request
             return List.of();
         }
-        String username = SecurityUtils.getCurrentUsername();
-        List<FeatureDto> featureDtos;
+        List<FeatureDto> featureDtos = List.of();
         if (StringUtils.isNotBlank(productCode)) {
             featureDtos = featureService.findFeaturesByProduct(username, productCode);
-        } else {
+        }
+        if (StringUtils.isNotBlank(releaseCode)) {
             featureDtos = featureService.findFeaturesByRelease(username, releaseCode);
+        }
+        if (tagIds != null && !tagIds.isEmpty()) {
+            featureDtos = featureService.findFeaturesByTags(username, tagIds);
         }
 
         if (username != null && !featureDtos.isEmpty()) {
