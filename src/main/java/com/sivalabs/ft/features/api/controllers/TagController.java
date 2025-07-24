@@ -53,6 +53,23 @@ class TagController {
         return tagService.getAllTags();
     }
 
+    @GetMapping("/search")
+    @Operation(
+            summary = "Search tags by name",
+            description = "Search tags by name",
+            responses = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = "Successful response",
+                        content =
+                                @Content(
+                                        mediaType = "application/json",
+                                        array = @ArraySchema(schema = @Schema(implementation = TagDto.class))))
+            })
+    List<TagDto> searchTags(@RequestParam String name) {
+        return tagService.searchTags(name);
+    }
+
     @GetMapping("/{id}")
     @Operation(
             summary = "Find tag by ID",

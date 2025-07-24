@@ -49,6 +49,15 @@ public class TagService {
         return tagRepository.existsByName(name);
     }
 
+    @Transactional(readOnly = true)
+    public List<TagDto> searchTags(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return getAllTags();
+        }
+        List<Tag> tags = tagRepository.findByNameContainingIgnoreCase(name.trim());
+        return tags.stream().map(tagMapper::toDto).toList();
+    }
+
     @Transactional
     public Long createTag(CreateTagCommand cmd) {
         Tag tag = new Tag();
