@@ -49,6 +49,10 @@ public class Feature {
             inverseJoinColumns = @JoinColumn(name = "tag_id"))
     private Set<Tag> tags = new HashSet<>();
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private Category category;
+
     @Size(max = 255) @NotNull @Column(name = "created_by", nullable = false)
     private String createdBy;
 
@@ -132,6 +136,14 @@ public class Feature {
 
     public void setTags(Set<Tag> tags) {
         this.tags = tags;
+    }
+
+    public Category getCategory() {
+        return category;
+    }
+
+    public void setCategory(Category category) {
+        this.category = category;
     }
 
     public String getCreatedBy() {
