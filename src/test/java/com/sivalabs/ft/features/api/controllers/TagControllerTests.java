@@ -25,6 +25,25 @@ class TagControllerTests extends AbstractIT {
 
     @Test
     @WithMockOAuth2User(username = "user")
+    void shouldSearchTagsByName() {
+        var result = mvc.get().uri("/api/tags/search?name=bug").exchange();
+        assertThat(result)
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.size()")
+                .asNumber()
+                .isEqualTo(1);
+
+        assertThat(result)
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$[0].name")
+                .asString()
+                .isEqualTo("bug");
+    }
+
+    @Test
+    @WithMockOAuth2User(username = "user")
     void shouldGetTagById() {
         var result = mvc.get().uri("/api/tags/{id}", 1).exchange();
         assertThat(result).hasStatusOk().bodyJson().convertTo(TagDto.class).satisfies(dto -> {
