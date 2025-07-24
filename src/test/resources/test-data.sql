@@ -47,4 +47,5 @@ insert into tags (id, name, description, created_by, created_at) values
 insert into feature_tags (feature_id, tag_id) values
 (1, 2),
 (1, 4),
-(3, 1);
+(3, 1),
+(2, 1);
