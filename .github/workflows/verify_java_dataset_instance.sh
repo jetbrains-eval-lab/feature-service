@@ -1,1015 +1,1139 @@
-#!/bin/bash
-
-# This script handles test dataset instance processing for SWE benchmarks
-# It accepts parameters for repository, commit, patches, test information, etc.
-
-set -o pipefail
-
-# Parse input parameters
-REPO="$1"
-COMMIT="$2"
-PATCH="$3"
-TEST_PATCH="$4"
-FAIL_TO_PASS="$5"
-PASS_TO_PASS="$6"
-TEST_ARGS="$7"
-IS_MAVEN=$(echo "$8" | tr '[:upper:]' '[:lower:]')
-JAVA_VERSION="$9"
-INSTANCE_ID="${10}"
-
-# Validate required parameters
-if [[ -z "$REPO" || "$REPO" == "null" ]]; then
-  echo "❌ Required parameter 'repo' is missing"
-  exit 1
-fi
-
-# Default Java version if not specified
-if [[ -z "$JAVA_VERSION" || "$JAVA_VERSION" == "null" ]]; then
-  JAVA_VERSION="24"
-  echo "ℹ️ Java version not specified, using default: $JAVA_VERSION"
-fi
-
-# Convert is_maven to lowercase
-IS_MAVEN=$(echo "$IS_MAVEN" | tr '[:upper:]' '[:lower:]')
-
-# Use repository name for Docker image if instance ID is not provided
-if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "null" ]]; then
-  INSTANCE_ID="auto-$(basename "$REPO" | tr '[:upper:]' '[:lower:]')-$(date +%s)"
-  echo "ℹ️ Auto-generated instance ID: $INSTANCE_ID"
-fi
-
-REPO_URL="git@github.com:$REPO"
-
-# Function to determine container naming strategy
-determine_container_name() {
-  local name_by_repo="$1"
-  local instance_id="$2"
-  local repo="$3"
-
-  if [ "$name_by_repo" = true ]; then
-    # Use repository name (replace slashes with dashes, convert to lowercase)
-    local repo_safe=$(echo "$repo" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
-    echo "swe-benchmark-$repo_safe"
-  else
-    # Use instance ID (default, convert to lowercase)
-    echo "swe-benchmark-$(echo "$instance_id" | tr '[:upper:]' '[:lower:]')"
-  fi
-}
-
-# Function to check Docker environment
-check_docker_environment() {
-  echo "🐳 Checking Docker environment..."
-  if ! command -v docker &> /dev/null; then
-    echo "❌ Docker is not installed. Please install Docker and try again."
-    echo "   Visit: https://docs.docker.com/get-docker/"
-    exit 1
-  fi
-
-  if ! docker info &> /dev/null; then
-    echo "❌ Docker daemon is not running or not accessible."
-    echo "   Please start Docker Desktop or Docker daemon and try again."
-    echo "   On macOS: Start Docker Desktop application"
-    echo "   On Linux: sudo systemctl start docker"
-    exit 1
-  fi
-
-  echo "✅ Docker environment is ready"
-}
-
-# Function to create Dockerfile
-create_dockerfile() {
-  local java_version="$1"
-
-  cat > Dockerfile << EOF
-FROM eclipse-temurin:${java_version}-jdk
-
-# Install Git, jq, and other utilities (Docker CLI will be available via socket mount)
-RUN apt-get update && \\
-    apt-get install -y \\
-    git \\
-    jq \\
-    patch \\
-    openssh-client \\
-    wget \\
-    unzip \\
-    ca-certificates \\
-    curl && \\
-    rm -rf /var/lib/apt/lists/*
-
-# Install Docker CLI only (no daemon needed)
-RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz | \\
-    tar xzf - --strip 1 -C /usr/local/bin docker/docker
-
-# Set up SSH for git clone (if needed)
-RUN mkdir -p /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
-
-# Set working directory
-WORKDIR /workspace
-
-# Default command
-CMD ["/bin/bash"]
-EOF
-}
-
-# Function to create setup script
-create_setup_script() {
-  SETUP_SCRIPT="setup_project.sh"
-  cat > "$SETUP_SCRIPT" << 'EOF'
-#!/bin/bash
-
-set -e
-
-REPO_URL="$1"
-COMMIT="$2"
-IS_MAVEN="$3"
-
-# Source common helper functions
-source /workspace/common_functions.sh
-
-echo "📋 Setting up project"
-echo "📦 Repository: $REPO_URL"
-echo "🏷️  Commit: $COMMIT"
-
-# Clone repository
-REPO_NAME=$(basename "$REPO_URL" .git)
-echo "📥 Cloning repository..."
-if ! git clone "$REPO_URL" "$REPO_NAME"; then
-  echo "❌ Failed to clone repository. Trying HTTPS..."
-  HTTPS_URL=$(echo "$REPO_URL" | sed 's|git@github.com:|https://github.com/|')
-  git clone "$HTTPS_URL" "$REPO_NAME"
-fi
-
-cd "$REPO_NAME"
-
-# Checkout specific commit
-echo "🔁 Checking out commit $COMMIT..."
-git checkout "$COMMIT"
-
-# Make gradlew executable if it exists
-if [ -f "./gradlew" ]; then
-  chmod +x ./gradlew
-
-  # Check if gradle-wrapper.jar exists, if not generate it
-  if [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
-    echo "🔧 Gradle wrapper JAR missing, initializing wrapper..."
-    # Always use system Gradle first to generate wrapper
-    if command -v gradle &> /dev/null; then
-      echo "🔧 Using system Gradle to initialize wrapper..."
-      gradle wrapper --no-daemon || {
-        echo "❌ Failed: Failed to initialize Gradle wrapper using system Gradle"
-        exit 1
-      }
-    else
-      # Install Gradle temporarily to generate wrapper
-      echo "🔧 Installing Gradle to initialize wrapper..."
-      wget -O gradle.zip https://services.gradle.org/distributions/gradle-9.0.0-bin.zip || {
-        echo "❌ Failed: Failed to download Gradle"
-        exit 1
-      }
-      unzip -q gradle.zip || {
-        echo "❌ Failed: Failed to unzip Gradle"
-        exit 1
-      }
-      chmod +x gradle-9.0.0/bin/gradle
-      ./gradle-9.0.0/bin/gradle wrapper --no-daemon || {
-        echo "❌ Failed: Failed to initialize Gradle wrapper using downloaded Gradle"
-        exit 1
-      }
-      rm -rf gradle.zip gradle-9.0.0
-    fi
-
-    # Verify wrapper was created successfully
-    if [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
-      echo "❌ Failed: Failed to create Gradle wrapper JAR"
-      exit 1
-    fi
-
-    echo "✅ Gradle wrapper initialized"
-  fi
-fi
-
-# Make mvn executable if it exists
-if [ -f "./mvnw" ]; then
-  chmod +x ./mvnw
-fi
-
-# Compile project and download dependencies
-echo "🏗️  Compiling project and downloading dependencies..."
-if [[ "$IS_MAVEN" == "true" ]]; then
-  # Try Maven wrapper first, then fallback to system Maven
-  MAVEN_CMD=""
-  if [ -f "./mvnw" ]; then
-    echo "🔧 Using Maven wrapper (./mvnw)"
-    MAVEN_CMD="./mvnw"
-  elif command -v mvn &> /dev/null; then
-    echo "🔧 Using system Maven"
-    MAVEN_CMD="mvn"
-  else
-    echo "🔧 Maven not found, installing..."
-    install_build_tools
-    MAVEN_CMD="mvn"
-  fi
-
-  echo "🔧 Running Maven compile: $MAVEN_CMD compile test-compile"
-  $MAVEN_CMD compile test-compile 2>&1 | tee compile_output.log
-else
-  # Try Gradle wrapper first, then fallback to system Gradle
-  GRADLE_CMD=""
-  if [ -f "./gradlew" ]; then
-    echo "🔧 Using Gradle wrapper (./gradlew)"
-    GRADLE_CMD="./gradlew"
-  elif command -v gradle &> /dev/null; then
-    echo "🔧 Using system Gradle"
-    GRADLE_CMD="gradle"
-  else
-    echo "🔧 Gradle not found, installing..."
-    install_build_tools
-    GRADLE_CMD="gradle"
-  fi
-
-  echo "🔧 Running Gradle compile: $GRADLE_CMD compileJava compileTestJava"
-  $GRADLE_CMD compileJava compileTestJava 2>&1 | tee compile_output.log
-fi
-
-echo "✅ Project setup and compilation completed"
-EOF
-  chmod +x "$SETUP_SCRIPT"
-}
-
-# Function to create test script
-create_test_script() {
-  local patch="$1"
-  local test_patch="$2" 
-  local instance_id="$3"
-  local fail_to_pass="$4"
-  local pass_to_pass="$5"
-  local test_args="$6"
-  local is_maven="$7"
-  local commit="$8"
-  local repo_url="$9"
-
-  # Write parameters to a separate file to avoid quote issues
-  PARAMS_FILE="test_params.env"
-  cat > "$PARAMS_FILE" << EOF
-PATCH=$(printf '%q' "$patch")
-TEST_PATCH=$(printf '%q' "$test_patch")
-INSTANCE_ID=$(printf '%q' "$instance_id")
-FAIL_TO_PASS=$(printf '%q' "$fail_to_pass")
-PASS_TO_PASS=$(printf '%q' "$pass_to_pass")
-TEST_ARGS=$(printf '%q' "$test_args")
-IS_MAVEN=$(printf '%q' "$is_maven")
-COMMIT=$(printf '%q' "$commit")
-REPO_URL=$(printf '%q' "$repo_url")
-EOF
-
-  TEST_SCRIPT="run_tests.sh"
-  cat > "$TEST_SCRIPT" << 'EOF'
-#!/bin/bash
-set -o pipefail
-
-# Resolve module (Maven/Gradle) for a given fully-qualified test name (optionally with method).
-# Prints the module directory relative to repo root (e.g., "service/order") and returns 0 on success.
-find_module_for_test() {
-  local fqn="$1"
-
-  # Normalize: strip method suffix (#method or (..)) and any "module::" prefix
-  local fqn_no_method="${fqn%%[#(]*}"
-  fqn_no_method="${fqn_no_method#*::}"
-  fqn_no_method="$(echo "$fqn_no_method" | xargs)"
-
-  if [[ -z "$fqn_no_method" ]]; then
-    return 1
-  fi
-
-  local class_name="${fqn_no_method##*.}"
-  local package_name="${fqn_no_method%.*}"
-  local pkg_path="${package_name//./\/}"
-
-  # roots to search for tests
-  local roots=(
-    "src/test/java" "src/test/kotlin" "src/test/groovy"
-    "src/integrationTest/java" "src/integrationTest/kotlin" "src/integrationTest/groovy"
-    "src/it/java" "src/it/kotlin" "src/it/groovy"
-  )
-  local exts=("java" "kt" "groovy")
-
-  local matches=()
-  for root in "${roots[@]}"; do
-    for ext in "${exts[@]}"; do
-      local suffix="$root"
-      if [[ -n "$pkg_path" ]]; then
-        suffix="$suffix/$pkg_path/$class_name.$ext"
-      else
-        suffix="$suffix/$class_name.$ext"
-      fi
-      # find files under any module
-      while IFS= read -r f; do
-        matches+=("$f")
-      done < <(find . -type f -path "*/$suffix" 2>/dev/null)
-    done
-  done
-
-  if [[ ${#matches[@]} -eq 0 ]]; then
-    return 1
-  fi
-
-  local best_mod="" best_score=999999
-  for f in "${matches[@]}"; do
-    local mod="${f%/src/*}"
-    mod="${mod#./}"
-
-    # score: prefer modules that look like Maven/Gradle projects & shallower paths
-    local score=0
-    [[ -f "$mod/pom.xml" ]] && score=$((score-3))
-    [[ -f "$mod/build.gradle" || -f "$mod/build.gradle.kts" ]] && score=$((score-3))
-
-    # bias by build tool if known
-    if [[ "$IS_MAVEN" == "true" && -f "$mod/pom.xml" ]]; then
-      score=$((score-2))
-    fi
-    if [[ "$IS_MAVEN" == "false" && ( -f "$mod/build.gradle" || -f "$mod/build.gradle.kts" ) ]]; then
-      score=$((score-2))
-    fi
-
-    # shallower is better
-    local depth="${mod//[^\/]/}"
-    score=$((score + ${#depth}))
-
-    if (( score < best_score )) || [[ -z "$best_mod" ]]; then
-      best_mod="$mod"
-      best_score=$score
-    fi
-  done
-
-  if [[ -n "$best_mod" ]]; then
-    echo "$best_mod"
-    return 0
-  fi
-  return 1
-}
-
-# Note: Not using 'set -e' to allow continuation even if patches fail
-
-# Load parameters from environment file
-source /workspace/test_params.env
-
-# Source common helper functions
-source /workspace/common_functions.sh
-
-echo "📋 Running tests for instance: $INSTANCE_ID"
-
-# Navigate to the already cloned and compiled project (robust detection)
-project_dir=""
-# Prefer a directory with a .git folder
-for dir in /workspace/*; do
-  if [ -d "$dir" ] && [ -d "$dir/.git" ]; then
-    project_dir="$dir"
-    break
-  fi
-done
-# Fallback to first directory under /workspace
-if [ -z "$project_dir" ]; then
-  for dir in /workspace/*; do
-    if [ -d "$dir" ]; then
-      project_dir="$dir"
-      break
-    fi
-  done
-fi
-# If still not found, attempt to clone using REPO_URL
-if [ -z "$project_dir" ]; then
-  if [[ -n "$REPO_URL" && "$REPO_URL" != "null" ]]; then
-    repo_name=$(basename "$REPO_URL" .git)
-    echo "📥 Cloning repository into container: $REPO_URL"
-    if ! git clone "$REPO_URL" "/workspace/$repo_name"; then
-      echo "❌ SSH clone failed, trying HTTPS..."
-      https_url=$(echo "$REPO_URL" | sed 's|git@github.com:|https://github.com/|')
-      git clone "$https_url" "/workspace/$repo_name"
-    fi
-    project_dir="/workspace/$repo_name"
-  fi
-fi
-# Final check
-if [ -z "$project_dir" ] || [ ! -d "$project_dir" ]; then
-  echo "❌ No project directory found in prepared container"
-  exit 1
-fi
-
-cd "$project_dir"
-REPO_NAME=$(basename "$project_dir")
-echo "📁 Working in project directory: $REPO_NAME"
-
-# Get the current commit hash from environment or git
-COMMIT_HASH=$(git rev-parse HEAD)
-echo "🔄 Current commit: $COMMIT_HASH"
-
-# Reset to clean state before applying patches
-echo "🧹 Resetting to clean state..."
-git reset --hard HEAD
-git clean -fd
-
-# Verify we're in a clean state
-if [ -n "$(git status --porcelain)" ]; then
-  echo "⚠️  Warning: Repository not completely clean after reset"
-  git status --short
-fi
-
-# Checkout specific commit
-echo "🔁 Checking out commit $COMMIT..."
-git checkout "$COMMIT"
-git reset --hard HEAD
-git clean -fd
-
-# Define run_test_class early so it can be used before later redefinition
-run_test_class() {
-  local test_name="$1"
-  local test_type="$2"
-
-  echo "Running $test_type test: $test_class"
-
-  # Check if we have test_args and if it's not "null"
-  local test_args_param=""
-  if [[ -n "$TEST_ARGS" && "$TEST_ARGS" != "null" ]]; then
-    test_args_param="$TEST_ARGS"
-    echo "📋 Using test args: $test_args_param"
-  fi
-
-  # Split "module::fqn" if provided
-  local module_name=""
-  if [[ "$test_name" == *"::"* ]]; then
-    module_name="${test_name%%::*}"
-    test_name="${test_name#*::}"
-  fi
-
-  # If module not given, try to auto-detect via package path
-  if [[ -z "$module_name" ]]; then
-    if module_name="$(find_module_for_test "$test_name")"; then
-      echo "🧭 Auto-detected module for test '$test_name' -> '$module_name'"
-    else
-      echo "⚠️  Could not auto-detect module for test '$test_name'. Falling back to root."
-    fi
-  fi
-
-  if [[ "$IS_MAVEN" == "true" ]]; then
-    # Try Maven wrapper first, then fallback to system Maven
-    MAVEN_CMD=""
-    if [ -f "./mvnw" ]; then
-      echo "🔧 Using Maven wrapper (./mvnw)"
-      MAVEN_CMD="./mvnw"
-    elif command -v mvn &> /dev/null; then
-      echo "🔧 Using system Maven"
-      MAVEN_CMD="mvn"
-    else
-      echo "🔧 Maven not found, installing..."
-      install_build_tools
-      MAVEN_CMD="mvn"
-    fi
-
-    # Run spotless and spring check
-    echo "🔧 Running Maven format commands:"
-    $MAVEN_CMD spring-javaformat:apply | tee test_output.log
-    $MAVEN_CMD spotless:apply | tee test_output.log
-
-    # Maven test execution with test_args
-    if [[ -n "$module_name" && "$module_name" != "." ]]; then
-      echo "🔧 Running Maven command: $MAVEN_CMD test $test_args_param -pl $module_name -Dtest=\"$test_name\""
-      $MAVEN_CMD test $test_args_param -pl "$module_name" -Dtest="$test_name" -Dsurefire.failIfNoSpecifiedTests=true 2>&1 | tee test_output.log
-    else
-      echo "🔧 Running Maven command: $MAVEN_CMD test $test_args_param -Dtest=\"$test_name\""
-      $MAVEN_CMD test $test_args_param -Dtest="$test_name" -Dsurefire.failIfNoSpecifiedTests=true 2>&1 | tee test_output.log
-    fi
-    exit_code=$?
-
-    # Check if the test wasn't found
-    if grep -q "No tests matching pattern" test_output.log || grep -q "No tests were executed" test_output.log; then
-      echo "❌ $test_type test NOT FOUND: $test_class"
-      return 2
-    elif [ $exit_code -eq 0 ]; then
-      echo "✅ $test_type test PASSED: $test_class"
-      return 0
-    else
-      echo "❌ $test_type test FAILED: $test_class"
-      return 1
-    fi
-  else
-    # Try Gradle wrapper first, then fallback to system Gradle
-    GRADLE_CMD=""
-    if [ -f "./gradlew" ]; then
-      echo "🔧 Using Gradle wrapper (./gradlew)"
-      GRADLE_CMD="./gradlew"
-    elif command -v gradle &> /dev/null; then
-      echo "🔧 Using system Gradle"
-      GRADLE_CMD="gradle"
-    else
-      echo "🔧 Gradle not found, installing..."
-      install_build_tools
-      GRADLE_CMD="gradle"
-    fi
-
-    # Run spotless and spring check
-    echo "🔧 Running Gradle format commands:"
-    $GRADLE_CMD format | tee compile_output.log
-    $GRADLE_CMD spotlessApply | tee compile_output.log
-
-    # Gradle test execution with test_args
-    local gradle_task="test"
-    # Gradle: derive :a:b:c:test task for the module when known
-    local gradle_task="test"
-    if [[ -n "$module_name" && "$module_name" != "." ]]; then
-      gradle_task=":${module_name//\//:}:test"
-    fi
-    echo "🔧 Running Gradle command: $GRADLE_CMD $gradle_task $test_args_param --tests \"$test_name\""
-    $GRADLE_CMD $gradle_task $test_args_param --tests "$test_name" 2>&1 | tee test_output.log
-    exit_code=$?
-
-    # Check if the test wasn't found
-    if grep -q "No tests found for given includes" test_output.log || grep -q "No tests found matching" test_output.log; then
-      echo "❌ $test_type test FAILED (NOT FOUND): $test_class"
-      return 2
-    elif [ $exit_code -eq 0 ]; then
-      echo "✅ $test_type test PASSED: $test_class"
-      return 0
-    else
-      echo "❌ $test_type test FAILED: $test_class"
-      return 1
-    fi
-  fi
-}
-
-# Apply test patch with error handling first
-echo "🧪 Applying test patch..."
-if [ "$TEST_PATCH" != "null" ] && [ -n "$TEST_PATCH" ]; then
-  # Try dry run first to validate patch
-  if echo "$TEST_PATCH" | patch -p1 --dry-run > /dev/null 2>&1; then
-    echo "$TEST_PATCH" | patch -p1
-    echo "✅ Test patch applied successfully"
-  else
-    echo "⚠️  Test patch dry run failed, trying with force..."
-    if echo "$TEST_PATCH" | patch -p1 --force --reject-file=test.rej; then
-      echo "✅ Test patch applied with force"
-      if [ -f "test.rej" ]; then
-        echo "⚠️ Failed: Some parts rejected - see test.rej"
-        cat test.rej
-        exit 1
-      fi
-    else
-      echo "❌ Failed: Test patch failed completely"
-      exit 1
-    fi
-  fi
-else
-  echo "ℹ️  No test patch to apply"
-fi
-
-# AFTER APPLYING TEST PATCH: Run FAIL_TO_PASS again and gate
-echo "👉 Running FAIL_TO_PASS tests after applying test patch (without golden patch)..."
-if [[ "$FAIL_TO_PASS" != "[]" && "$FAIL_TO_PASS" != "null" ]]; then
-  TP_FAIL_TESTS=$(echo "$FAIL_TO_PASS" | jq -r '.[]' 2>/dev/null || echo "$FAIL_TO_PASS" | tr -d '[]"' | tr ',' '\n')
-  tp_fail_to_pass_count=0
-  tp_fail_to_pass_success=0
-  tp_fail_to_pass_passed_list=""
-
-  for test in $TP_FAIL_TESTS; do
-    if [[ -n "$test" && "$test" != "null" ]]; then
-      clean_test=$(echo "$test" | sed 's/^src://')
-      ((tp_fail_to_pass_count++))
-      run_test_class "$clean_test" "FAIL_TO_PASS"
-      result=$?
-      if [ $result -eq 0 ]; then
-        ((tp_fail_to_pass_success++))
-        if [[ -z "$tp_fail_to_pass_passed_list" ]]; then
-          tp_fail_to_pass_passed_list="$clean_test"
-        else
-          tp_fail_to_pass_passed_list="$tp_fail_to_pass_passed_list, $clean_test"
-        fi
-      elif [ $result -eq 2 ]; then
-        echo "⚠️ WARNING: FAIL_TO_PASS test '$clean_test' could not be found or executed"
-      fi
-    fi
-  done
-
-  echo "📊 FAIL_TO_PASS summary with test patch: $tp_fail_to_pass_success of $tp_fail_to_pass_count tests passed"
-  if [ ${tp_fail_to_pass_success:-0} -gt 0 ]; then
-    echo "❌  Failed: FAIL_TO_PASS passed with test patch and without golden patch: $tp_fail_to_pass_passed_list"
-    exit 1
-  fi
-else
-  echo "No FAIL_TO_PASS tests to run after test patch"
-fi
-
-# Now apply source (golden) patch with error handling
-echo "🩹 Applying source patch..."
-if [ "$PATCH" != "null" ] && [ -n "$PATCH" ]; then
-  # Show patch content for debugging
-  echo "📄 Source patch content (first 10 lines):"
-  echo "$PATCH" | head -10
-  echo "..."
-
-  # Try dry run first to validate patch
-  echo "🔍 Running patch dry run..."
-  if echo "$PATCH" | patch -p1 --dry-run > patch_dry_run.log 2>&1; then
-    echo "$PATCH" | patch -p1
-    echo "✅ Source patch applied successfully"
-  else
-    echo "⚠️  Source patch dry run failed, analyzing..."
-    echo "📋 Dry run output:"
-    cat patch_dry_run.log
-
-    # Check if target files exist
-    TARGET_FILES=$(echo "$PATCH" | grep "^+++" | sed 's/^+++ [ab]\///' | head -5)
-    echo "🔍 Checking target files:"
-    for file in $TARGET_FILES; do
-      if [ -f "$file" ]; then
-        echo "✅ Found: $file"
-        echo "📄 Current content around line context:"
-        # Show some context from the file
-        head -50 "$file" | tail -20
-      else
-        echo "❌  Failed: Missing: $file"
-        exit 1
-      fi
-    done
-
-    echo "⚠️  Trying patch with force and different options..."
-    # Try with different patch options
-    if echo "$PATCH" | patch -p1 --force --reject-file=source.rej --no-backup-if-mismatch; then
-      echo "✅ Source patch applied with force"
-      if [ -f "source.rej" ]; then
-        cat source.rej
-        echo "⚠️   Failed: Some parts rejected - see source.rej:"
-        exit 1
-      fi
-    else
-      echo "❌  Failed: Source patch failed completely - continuing anyway to allow test patch"
-      exit 1
-    fi
-  fi
-else
-  echo "ℹ️  No source patch to apply"
-fi
-
-# Show what files were modified
-echo "📝 Modified files after patches:"
-git status --short
-
-# Add any new files created by patches to git so they get cleaned up on next reset
-echo "📋 Adding new files to git for proper cleanup on next run..."
-git add -A
-if [ -n "$(git status --porcelain)" ]; then
-  echo "✅ Added patch-created files to git index:"
-  git status --short
-else
-  echo "ℹ️  No new files to add to git index"
-fi
-
-echo "FAIL_TO_PASS tests: $FAIL_TO_PASS"
-echo "PASS_TO_PASS tests: $PASS_TO_PASS"
-
-# Parse and run FAIL_TO_PASS tests
-if [[ "$FAIL_TO_PASS" != "[]" && "$FAIL_TO_PASS" != "null" ]]; then
-  FAIL_TESTS=$(echo "$FAIL_TO_PASS" | jq -r '.[]' 2>/dev/null || echo "$FAIL_TO_PASS" | tr -d '[]"' | tr ',' '\n')
-  fail_to_pass_count=0
-  fail_to_pass_success=0
-  base_fail_to_pass_failed_list=""
-
-  for test in $FAIL_TESTS; do
-    if [[ -n "$test" && "$test" != "null" ]]; then
-      # Remove "src:" prefix if present
-      clean_test=$(echo "$test" | sed 's/^src://')
-      ((fail_to_pass_count++))
-
-      run_test_class "$clean_test" "FAIL_TO_PASS"
-      result=$?
-
-      if [ $result -eq 0 ]; then
-        ((fail_to_pass_success++))
-      else
-        if [[ -z "$base_fail_to_pass_failed_list" ]]; then
-          base_fail_to_pass_failed_list="$clean_test"
-        else
-          base_fail_to_pass_failed_list="$base_fail_to_pass_failed_list, $clean_test"
-        fi
-      fi
-    fi
-  done
-
-  echo "📊 FAIL_TO_PASS summary: $fail_to_pass_success of $fail_to_pass_count tests passed"
-  if [ ${fail_to_pass_count:-0} -gt 0 ] && [ ${fail_to_pass_success:-0} -lt ${fail_to_pass_count:-0} ]; then
-    echo "❌  Failed: FAIL_TO_PASS tests must all pass. Failed tests: $base_fail_to_pass_failed_list"
-    exit 1
-  fi
-else
-  echo "No FAIL_TO_PASS tests to run"
-fi
-
-# Parse and run PASS_TO_PASS tests
-if [[ "$PASS_TO_PASS" != "[]" && "$PASS_TO_PASS" != "null" ]]; then
-  PASS_TESTS=$(echo "$PASS_TO_PASS" | jq -r '.[]' 2>/dev/null || echo "$PASS_TO_PASS" | tr -d '[]"' | tr ',' '\n')
-  pass_to_pass_count=0
-  pass_to_pass_success=0
-  base_pass_to_pass_failed_list=""
-
-  for test in $PASS_TESTS; do
-    if [[ -n "$test" && "$test" != "null" ]]; then
-      # Remove "src:" prefix if present
-      clean_test=$(echo "$test" | sed 's/^src://')
-      ((pass_to_pass_count++))
-
-      run_test_class "$clean_test" "PASS_TO_PASS"
-      result=$?
-
-      if [ $result -eq 0 ]; then
-        ((pass_to_pass_success++))
-      else
-        if [[ -z "$base_pass_to_pass_failed_list" ]]; then
-          base_pass_to_pass_failed_list="$clean_test"
-        else
-          base_pass_to_pass_failed_list="$base_pass_to_pass_failed_list, $clean_test"
-        fi
-      fi
-    fi
-  done
-
-  echo "📊 PASS_TO_PASS summary: $pass_to_pass_success of $pass_to_pass_count tests passed"
-  if [ ${pass_to_pass_count:-0} -gt 0 ] && [ ${pass_to_pass_success:-0} -lt ${pass_to_pass_count:-0} ]; then
-    echo "❌  Failed: PASS_TO_PASS tests must all pass. Failed tests: $base_pass_to_pass_failed_list"
-    exit 1
-  fi
-else
-  echo "No PASS_TO_PASS tests to run"
-fi
-
-echo "🏁 Test execution completed for instance: $INSTANCE_ID"
-EOF
-  chmod +x "$TEST_SCRIPT"
-}
-
-# Function to create common functions file
-create_common_functions_file() {
-  COMMON_FUNCTIONS="common_functions.sh"
-  # Remove any existing directory with this name before creating the file
-  if [ -d "$COMMON_FUNCTIONS" ]; then
-    rm -rf "$COMMON_FUNCTIONS"
-  fi
-  cat > "$COMMON_FUNCTIONS" << 'EOF'
-#!/bin/bash
-# Common helper functions for SWE benchmark scripts
-
-# Install build tools if needed based on IS_MAVEN env variable
-install_build_tools() {
-  if [[ "$IS_MAVEN" == "true" ]]; then
-    if ! command -v mvn &> /dev/null; then
-      echo "🔧 Installing Maven..."
-      apt-get update && apt-get install -y maven
-    fi
-  else
-    if ! command -v gradle &> /dev/null; then
-      echo "🔧 Installing Gradle..."
-      wget -O gradle.zip https://services.gradle.org/distributions/gradle-9.0.0-bin.zip
-      unzip -q gradle.zip
-      mv gradle-9.0.0 /opt/gradle
-      ln -s /opt/gradle/bin/gradle /usr/local/bin/gradle
-      rm gradle.zip
-    fi
-  fi
-}
-EOF
-  chmod +x "$COMMON_FUNCTIONS"
-}
-
-# Function to build and run container for project setup
-build_and_run_setup_container() {
-  local docker_image_name="$1"
-  local repo_url="$2"
-  local commit="$3"
-  local is_maven="$4"
-  local instance_id="$5"
-
-  # Check if prepared container already exists
-  if docker image inspect "$docker_image_name-base" > /dev/null 2>&1; then
-    echo "✅ Prepared container already exists: $docker_image_name-base"
-    echo "🚀 Skipping container preparation..."
-    return 0
-  fi
-
-  echo "🐳 Prepared container not found, creating new one..."
-
-  # Build base Docker image
-  echo "🐳 Building base Docker image: $docker_image_name-base..."
-  docker build -t "$docker_image_name-base" .
-
-  # Create setup script
-  create_setup_script
-  create_common_functions_file
-
-  # Create prepared container with project and dependencies
-  echo "🚀 Setting up project in container..."
-  # Use unique setup container name per instance to avoid name conflicts
-  SETUP_CONTAINER_NAME="${docker_image_name}-setup-$(echo "$instance_id" | tr '[:upper:]' '[:lower:]')"
-  # Remove any stale container with the same name (from previous runs)
-  docker rm -f "$SETUP_CONTAINER_NAME" 2>/dev/null || true
-
-  docker run -d \
-    -v "$(pwd)/$SETUP_SCRIPT:/workspace/setup_project.sh" \
-    -v "$(pwd)/$COMMON_FUNCTIONS:/workspace/common_functions.sh" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    --privileged \
-    --network bridge \
-    -e TESTCONTAINERS_RYUK_DISABLED=true \
-    -e TESTCONTAINERS_CHECKS_DISABLE=true \
-    -e DOCKER_HOST=unix:///var/run/docker.sock \
-    -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \
-    --name "$SETUP_CONTAINER_NAME" \
-    "$docker_image_name-base" \
-    bash -c "/workspace/setup_project.sh '$repo_url' '$commit' '$is_maven' && sleep infinity"
-
-  # Wait for setup to complete and show logs
-  echo "📋 Waiting for project setup to complete..."
-  docker logs -f "$SETUP_CONTAINER_NAME" &
-  LOGS_PID=$!
-
-  # Wait for the setup script to finish (it will exit, leaving only sleep infinity)
-  while docker exec "$SETUP_CONTAINER_NAME" pgrep -f "setup_project.sh" > /dev/null 2>&1; do
-    sleep 2
-  done
-
-  # Kill the logs process
-  kill $LOGS_PID 2>/dev/null || true
-
-  # Check if container is still running and if setup was successful
-  if ! docker ps -q -f "name=$SETUP_CONTAINER_NAME" | grep -q .; then
-    docker rm -f "$SETUP_CONTAINER_NAME" 2>/dev/null || true
-    echo "🗑️  Removing prepared container: $docker_image_name-base"
-    docker rmi "$docker_image_name-base" 2>/dev/null || true
-    return 1
-  fi
-
-  # Check container exit code to determine if setup was successful
-  SETUP_EXIT_CODE=$(docker inspect "$SETUP_CONTAINER_NAME" --format='{{.State.ExitCode}}')
-  if [ "$SETUP_EXIT_CODE" != "0" ] && [ "$SETUP_EXIT_CODE" != "null" ]; then
-    docker rm -f "$SETUP_CONTAINER_NAME" 2>/dev/null || true
-    echo "🗑️  Removing prepared container: $docker_image_name-base"
-    docker rmi "$docker_image_name-base" 2>/dev/null || true
-    echo "❌ Failed: Container preparation failed with exit code: $SETUP_EXIT_CODE"
-    return 1
-  fi
-
-  # Commit the container with project and dependencies
-  echo "💾 Creating prepared container image: $docker_image_name-base..."
-  docker commit "$SETUP_CONTAINER_NAME" "$docker_image_name-base"
-  docker rm -f "$SETUP_CONTAINER_NAME" 2>/dev/null || true
-
-  return 0
-}
-
-# Function to run tests in container
-run_tests_in_container() {
-  local docker_image_name="$1"
-  local patch="$2"
-  local test_patch="$3"
-  local instance_id="$4"
-  local fail_to_pass="$5"
-  local pass_to_pass="$6"
-  local test_args="$7"
-  local is_maven="$8"
-  local commit="$9"
-  local repo_url="${10}"
-
-  # Create test script
-  create_test_script "$patch" "$test_patch" "$instance_id" "$fail_to_pass" "$pass_to_pass" "$test_args" "$is_maven" "$commit" "$repo_url"
-  create_common_functions_file
-
-  # Run Docker container and execute tests
-  echo "🚀 Running Docker container..."
-  # Create temporary file to store full output
-  TEMP_OUTPUT_FILE=$(mktemp)
-
-  # Execute docker run and display output in real-time while also saving to a file
-  set +e
-  docker run --rm \
-    -v "$(pwd)/$TEST_SCRIPT:/workspace/run_tests.sh" \
-    -v "$(pwd)/$PARAMS_FILE:/workspace/test_params.env" \
-    -v "$(pwd)/$COMMON_FUNCTIONS:/workspace/common_functions.sh" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    --privileged \
-    --network bridge \
-    -e TESTCONTAINERS_RYUK_DISABLED=true \
-    -e TESTCONTAINERS_CHECKS_DISABLE=true \
-    -e DOCKER_HOST=unix:///var/run/docker.sock \
-    -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \
-    "$docker_image_name-base" \
-    bash -c "/workspace/run_tests.sh" 2>&1 | tee "$TEMP_OUTPUT_FILE"
-  RUN_EXIT_CODE=${PIPESTATUS[0]}
-
-  # Get the last line of output for error reporting
-  LAST_LINE=$(tail -n 1 "$TEMP_OUTPUT_FILE")
-  rm -f "$TEMP_OUTPUT_FILE"
-
-  # Cleanup
-  rm -f "$TEST_SCRIPT" "$PARAMS_FILE"
-
-  set -e
-
-  return $RUN_EXIT_CODE
-}
-
-# Function to cleanup resources
-cleanup_resources() {
-  local docker_image_name="$1"
-  local cleanup_containers="$2"
-
-  echo "🧹 Cleaning up..."
-  rm -f Dockerfile
-
-  if [ -n "$SETUP_SCRIPT" ]; then
-    rm -f "$SETUP_SCRIPT"
-  fi
-
-  if [ -n "$COMMON_FUNCTIONS" ]; then
-    rm -f "$COMMON_FUNCTIONS"
-  fi
-
-  # Remove prepared image with project snapshot (always remove main prepared image tag)
-  docker rmi "$docker_image_name" 2>/dev/null || true
-
-  # Handle base image cleanup based on cleanup_containers flag
-  if [ "$cleanup_containers" = true ]; then
-    echo "🗑️  Removing prepared container: $docker_image_name-base"
-    docker rmi "$docker_image_name-base" 2>/dev/null || true
-  else
-    echo "💾 Prepared container preserved: $docker_image_name-base"
-    echo "   Use --cleanup flag to remove containers after execution"
-    echo "   Use 'docker rmi $docker_image_name-base' to remove manually"
-  fi
-}
-
-# Main execution flow
-main() {
-  local name_by_repo="$1"
-  local cleanup_containers="$2"
-
-  # Display basic information
-  echo "📋 Instance: $INSTANCE_ID"
-  echo "📦 Repository: $REPO_URL"
-  echo "🏷️  Commit: $COMMIT"
-  echo "🧹 Cleanup containers: $cleanup_containers"
-
-  # Determine container name
-  DOCKER_IMAGE_NAME=$(determine_container_name "$name_by_repo" "$INSTANCE_ID" "$REPO")
-  if [ "$name_by_repo" = true ]; then
-    echo "📋 Container name: $DOCKER_IMAGE_NAME (by repository)"
-  else
-    echo "📋 Container name: $DOCKER_IMAGE_NAME (by instance ID)"
-  fi
-
-  # Check Docker environment
-  check_docker_environment
-
-  # Create Dockerfile
-  create_dockerfile "$JAVA_VERSION"
-
-  # Build and run setup container
-  build_and_run_setup_container "$DOCKER_IMAGE_NAME" "$REPO_URL" "$COMMIT" "$IS_MAVEN" "$INSTANCE_ID"
-  if [ $? -ne 0 ]; then
-    echo "❌ Failed: Setup container preparation failed"
-    exit 1
-  fi
-
-  # Run tests in container
-  run_tests_in_container "$DOCKER_IMAGE_NAME" "$PATCH" "$TEST_PATCH" "$INSTANCE_ID" "$FAIL_TO_PASS" "$PASS_TO_PASS" "$TEST_ARGS" "$IS_MAVEN" "$COMMIT" "$REPO_URL"
-  RUN_EXIT_CODE=$?
-
-  # Cleanup resources
-  cleanup_resources "$DOCKER_IMAGE_NAME" "$cleanup_containers"
-
-  # Final result message must contain execution result
-  if [ $RUN_EXIT_CODE -eq 0 ]; then
-    echo "✅"
-    exit 0
-  else
-    # Strip leading cross mark from reason to match required final message format
-    REASON_NO_ICON="${LAST_LINE#*❌  Failed: }"
-    echo "❌ Failed: $REASON_NO_ICON"
-    exit 0
-  fi
-}
-
-# Execute script with the provided parameters
-if [ $# -ge 10 ]; then
-  # Default values for optional parameters
-  NAME_BY_REPO=false
-  CLEANUP_CONTAINERS=false
-
-  # Parse additional optional parameters if provided
-  if [ $# -ge 11 ]; then
-    NAME_BY_REPO="${11}"
-  fi
-
-  if [ $# -ge 12 ]; then
-    CLEANUP_CONTAINERS="${12}"
-  fi
-
-  main "$NAME_BY_REPO" "$CLEANUP_CONTAINERS"
-else
-  echo "❌ Failed: Usage: $0 REPO COMMIT PATCH TEST_PATCH FAIL_TO_PASS PASS_TO_PASS TEST_ARGS IS_MAVEN JAVA_VERSION INSTANCE_ID [NAME_BY_REPO] [CLEANUP_CONTAINERS]"
-fi
+name: Run Tests
+
+on:
+  push:
+    branches: [ "main", "scenario/*", "eval/*", "feature/*" ]
+  pull_request:
+    branches: [ "main", "scenario/*", "eval/*", "feature/*" ]
+  issue_comment:
+    types: [created]
+
+jobs:
+  # ──────────── 1. collect and process tests ────────────
+  collect-process-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      fail_to_pass: ${{ steps.combine.outputs.fail_to_pass }}
+      pass_to_pass: ${{ steps.combine.outputs.pass_to_pass }}
+      tests: ${{ steps.combine.outputs.tests }}
+      comment_id: ${{ steps.combine.outputs.comment_id }}
+      test_args: ${{ steps.combine.outputs.test_args }}
+      java_version: ${{ steps.combine.outputs.java_version }}
+      issue_numbers: ${{ steps.collect_issues.outputs.issue_numbers }}
+    if: ${{ github.event_name != 'issue_comment' || contains(github.event.comment.body, 'FAIL_TO_PASS') || contains(github.event.comment.body, 'PASS_TO_PASS') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ─── 1.1 collect issue numbers based on event type ───
+      - name: Collect issue numbers based on event type
+        id: collect_issues
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Initialize issue numbers variable
+          ISSUE_NUMBERS=""
+          
+          # Handle different event types
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "Collecting issue numbers from commits in PR #$PR_NUMBER"
+          
+            # Get all commits in the PR
+            COMMITS=$(gh api repos/$REPO/pulls/$PR_NUMBER/commits --jq '.[].sha')
+          
+            # Initialize an empty array for issue numbers
+            ISSUE_NUMBERS_ARRAY=()
+          
+            # For each commit, extract linked issue numbers
+            for COMMIT in $COMMITS; do
+              echo "Processing commit $COMMIT"
+          
+              # Get commit message
+              COMMIT_MSG=$(gh api repos/$REPO/commits/$COMMIT --jq '.commit.message')
+          
+              # Extract issue numbers using regex (e.g., #123, fixes #456, etc.)
+              ISSUES=$(echo "$COMMIT_MSG" | grep -o '#[0-9]\+' | sed 's/#//')
+          
+              if [ -n "$ISSUES" ]; then
+                echo "Found issues in commit $COMMIT: $ISSUES"
+                # Add to our array
+                for ISSUE in $ISSUES; do
+                  ISSUE_NUMBERS_ARRAY+=("$ISSUE")
+                done
+              fi
+            done
+          
+            # Remove duplicates and create JSON array
+            UNIQUE_ISSUES=$(echo "${ISSUE_NUMBERS_ARRAY[@]}" | tr ' ' '\n' | sort -u)
+          
+            if [ -z "$UNIQUE_ISSUES" ]; then
+              echo "No issue numbers found in commit messages, using PR number as fallback"
+              ISSUE_NUMBERS="[\"${{ github.event.pull_request.number }}\"]"
+            else
+              # Convert to JSON array
+              ISSUE_NUMBERS=$(echo "$UNIQUE_ISSUES" | jq -R . | jq -s .)
+            fi
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "Extracting issue numbers from commit message"
+          
+            # Get commit message
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+            # Extract issue numbers using regex (e.g., #123, fixes #456, etc.)
+            ISSUES=$(echo "$COMMIT_MSG" | grep -o '#[0-9]\+' | sed 's/#//')
+          
+            if [ -n "$ISSUES" ]; then
+              echo "Found issues in commit message: $ISSUES"
+          
+              # Initialize an empty array for issue numbers
+              ISSUE_NUMBERS_ARRAY=()
+          
+              # Add to our array
+              for ISSUE in $ISSUES; do
+                ISSUE_NUMBERS_ARRAY+=("$ISSUE")
+              done
+          
+              # Remove duplicates and create JSON array
+              UNIQUE_ISSUES=$(echo "${ISSUE_NUMBERS_ARRAY[@]}" | tr ' ' '\n' | sort -u)
+          
+              # Convert to JSON array
+              ISSUE_NUMBERS=$(echo "$UNIQUE_ISSUES" | jq -R . | jq -s .)
+            else
+              echo "No issue numbers found in commit message, using empty array as fallback"
+              ISSUE_NUMBERS="[\"\"]"
+            fi
+          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            echo "Using issue number from comment event"
+            ISSUE_NUMBERS="[\"${{ github.event.issue.number }}\"]"
+          else
+            echo "Using fallback issue number from inputs"
+            ISSUE_NUMBERS="[\"\"]"
+          fi
+          
+          echo "Found issue numbers: $ISSUE_NUMBERS"
+          # Escape the JSON string for GitHub Actions output
+          ESCAPED_ISSUE_NUMBERS=$(echo "$ISSUE_NUMBERS" | jq -c .)
+          echo "issue_numbers=$ESCAPED_ISSUE_NUMBERS" >> $GITHUB_OUTPUT
+
+      # ─── 1.2 extract test names from issues ───
+      - name: Extract test names for issues
+        id: extract_tests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBERS: ${{ steps.collect_issues.outputs.issue_numbers }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Initialize arrays for test results
+          FAIL_TO_PASS=()
+          PASS_TO_PASS=()
+          TESTS=()
+          COMMENT_ID=""
+          
+          # Process each issue number
+          for ISSUE_NUMBER in $(echo $ISSUE_NUMBERS | jq -r '.[]'); do
+            if [[ -z "$ISSUE_NUMBER" || "$ISSUE_NUMBER" == "null" ]]; then
+              continue
+            fi
+          
+            echo "Processing issue #$ISSUE_NUMBER"
+          
+            # Function to extract FAIL_TO_PASS and PASS_TO_PASS from text
+            extract_test_fields() {
+              local text="$1"
+              local fail_to_pass=""
+              local pass_to_pass=""
+          
+              if [[ -n "$text" ]]; then
+                # Find FAIL_TO_PASS pattern
+                if [[ "$text" =~ FAIL_TO_PASS:[[:space:]]*([^$'\n']+) ]]; then
+                  fail_to_pass="${BASH_REMATCH[1]}"
+                fi
+          
+                # Find PASS_TO_PASS pattern
+                if [[ "$text" =~ PASS_TO_PASS:[[:space:]]*([^$'\n']+) ]]; then
+                  pass_to_pass="${BASH_REMATCH[1]}"
+                fi
+              fi
+          
+              echo "$fail_to_pass|$pass_to_pass"
+            }
+          
+            # First check issue comments
+            echo "Checking issue comments for test fields..."
+            COMMENTS=$(gh api repos/$REPO/issues/$ISSUE_NUMBER/comments --jq '.[] | {id: .id, body: .body, created_at: .created_at}')
+          
+            if [[ -n "$COMMENTS" ]]; then
+              # Process all comments to find the latest one with FAIL_TO_PASS or PASS_TO_PASS
+              LATEST_COMMENT_WITH_VALUES=""
+              LATEST_COMMENT_ID=""
+              LATEST_FAIL_TO_PASS=""
+              LATEST_PASS_TO_PASS=""
+          
+              while IFS= read -r COMMENT; do
+                COMMENT_BODY=$(echo "$COMMENT" | jq -r '.body')
+                CURRENT_COMMENT_ID=$(echo "$COMMENT" | jq -r '.id')
+          
+                RESULT=$(extract_test_fields "$COMMENT_BODY")
+                IFS='|' read -r COMMENT_FAIL COMMENT_PASS <<< "$RESULT"
+          
+                if [[ -n "$COMMENT_FAIL" || -n "$COMMENT_PASS" ]]; then
+                  LATEST_COMMENT_WITH_VALUES="$COMMENT"
+                  LATEST_COMMENT_ID="$CURRENT_COMMENT_ID"
+          
+                  if [[ -n "$COMMENT_FAIL" ]]; then
+                    LATEST_FAIL_TO_PASS="$COMMENT_FAIL"
+                    echo "Found FAIL_TO_PASS in issue comment $CURRENT_COMMENT_ID: $COMMENT_FAIL"
+                  fi
+          
+                  if [[ -n "$COMMENT_PASS" ]]; then
+                    LATEST_PASS_TO_PASS="$COMMENT_PASS"
+                    echo "Found PASS_TO_PASS in issue comment $CURRENT_COMMENT_ID: $COMMENT_PASS"
+                  fi
+                fi
+              done <<< "$COMMENTS"
+          
+              # Use values from the latest comment
+              if [[ -n "$LATEST_COMMENT_WITH_VALUES" ]]; then
+                COMMENT_ID="$LATEST_COMMENT_ID"
+          
+                if [[ -n "$LATEST_FAIL_TO_PASS" ]]; then
+                  FAIL_TO_PASS=("$LATEST_FAIL_TO_PASS")
+                  echo "Using FAIL_TO_PASS from latest comment $COMMENT_ID: $LATEST_FAIL_TO_PASS"
+                fi
+          
+                if [[ -n "$LATEST_PASS_TO_PASS" ]]; then
+                  PASS_TO_PASS=("$LATEST_PASS_TO_PASS")
+                  echo "Using PASS_TO_PASS from latest comment $COMMENT_ID: $LATEST_PASS_TO_PASS"
+                fi
+              fi
+            fi
+          
+            # If not found in comments, check commit messages
+            if [[ ${#FAIL_TO_PASS[@]} -eq 0 && ${#PASS_TO_PASS[@]} -eq 0 ]]; then
+              echo "Checking commit messages for test fields..."
+          
+              # Get linked commit IDs
+              COMMIT_IDS=$(gh api repos/$REPO/issues/$ISSUE_NUMBER/timeline --jq '.[] | select(.event == "referenced" and .commit_id != null) | .commit_id')
+          
+              if [[ -z "$COMMIT_IDS" ]]; then
+                echo "No directly linked commits found, checking PRs..."
+          
+                # Try to get commits from PRs
+                PR_NUMBERS=$(gh api repos/$REPO/issues/$ISSUE_NUMBER/timeline --jq '.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) | .source.issue.number')
+          
+                if [[ -n "$PR_NUMBERS" ]]; then
+                  for PR in $PR_NUMBERS; do
+                    echo "Fetching commits from PR #$PR..."
+                    PR_COMMITS=$(gh api repos/$REPO/pulls/$PR/commits --jq '.[].sha')
+          
+                    if [[ -n "$PR_COMMITS" ]]; then
+                      COMMIT_IDS="$COMMIT_IDS"$'\n'"$PR_COMMITS"
+                    fi
+                  done
+                fi
+              fi
+          
+              # Process commit messages to find the latest one with FAIL_TO_PASS or PASS_TO_PASS
+              if [[ -n "$COMMIT_IDS" ]]; then
+                # Variables to track the latest commit with values
+                LATEST_COMMIT_ID=""
+                LATEST_COMMIT_DATE=""
+                LATEST_COMMIT_FAIL=""
+                LATEST_COMMIT_PASS=""
+          
+                while IFS= read -r COMMIT_ID; do
+                  if [[ -z "$COMMIT_ID" ]]; then
+                    continue
+                  fi
+          
+                  echo "Fetching message for commit: $COMMIT_ID"
+                  COMMIT_DATA=$(gh api repos/$REPO/commits/$COMMIT_ID --jq '{message: .commit.message, date: .commit.author.date}')
+                  COMMIT_MSG=$(echo "$COMMIT_DATA" | jq -r '.message')
+                  COMMIT_DATE=$(echo "$COMMIT_DATA" | jq -r '.date')
+          
+                  if [[ -n "$COMMIT_MSG" ]]; then
+                    RESULT=$(extract_test_fields "$COMMIT_MSG")
+                    IFS='|' read -r COMMIT_FAIL COMMIT_PASS <<< "$RESULT"
+          
+                    if [[ -n "$COMMIT_FAIL" || -n "$COMMIT_PASS" ]]; then
+                      # Check if this commit is newer than our current latest
+                      if [[ -z "$LATEST_COMMIT_DATE" || "$COMMIT_DATE" > "$LATEST_COMMIT_DATE" ]]; then
+                        LATEST_COMMIT_ID="$COMMIT_ID"
+                        LATEST_COMMIT_DATE="$COMMIT_DATE"
+                        LATEST_COMMIT_FAIL="$COMMIT_FAIL"
+                        LATEST_COMMIT_PASS="$COMMIT_PASS"
+          
+                        if [[ -n "$COMMIT_FAIL" ]]; then
+                          echo "Found FAIL_TO_PASS in commit $COMMIT_ID: $COMMIT_FAIL"
+                        fi
+          
+                        if [[ -n "$COMMIT_PASS" ]]; then
+                          echo "Found PASS_TO_PASS in commit $COMMIT_ID: $COMMIT_PASS"
+                        fi
+                      fi
+                    fi
+                  fi
+                done <<< "$COMMIT_IDS"
+          
+                # Use values from the latest commit
+                if [[ -n "$LATEST_COMMIT_ID" ]]; then
+                  if [[ -n "$LATEST_COMMIT_FAIL" ]]; then
+                    FAIL_TO_PASS=("$LATEST_COMMIT_FAIL")
+                    echo "Using FAIL_TO_PASS from latest commit $LATEST_COMMIT_ID: $LATEST_COMMIT_FAIL"
+                  fi
+          
+                  if [[ -n "$LATEST_COMMIT_PASS" ]]; then
+                    PASS_TO_PASS=("$LATEST_COMMIT_PASS")
+                    echo "Using PASS_TO_PASS from latest commit $LATEST_COMMIT_ID: $LATEST_COMMIT_PASS"
+                  fi
+                fi
+              fi
+            fi
+          done
+          
+          # Convert arrays to comma-separated strings
+          FAIL_TO_PASS_STR=$(IFS=,; echo "${FAIL_TO_PASS[*]}")
+          PASS_TO_PASS_STR=$(IFS=,; echo "${PASS_TO_PASS[*]}")
+          
+          # Convert to JSON arrays if not empty
+          if [[ -n "$FAIL_TO_PASS_STR" ]]; then
+            FAIL_TO_PASS_JSON=$(echo "$FAIL_TO_PASS_STR" | jq -R -c 'split(",") | map(select(length > 0))')
+          else
+            FAIL_TO_PASS_JSON="[]"
+          fi
+
+          if [[ -n "$PASS_TO_PASS_STR" ]]; then
+            PASS_TO_PASS_JSON=$(echo "$PASS_TO_PASS_STR" | jq -R -c 'split(",") | map(select(length > 0))')
+          else
+            PASS_TO_PASS_JSON="[]"
+          fi
+          
+          # Combine tests
+          if [[ -n "$FAIL_TO_PASS_STR" || -n "$PASS_TO_PASS_STR" ]]; then
+            TESTS_STR="$FAIL_TO_PASS_STR,$PASS_TO_PASS_STR"
+            TESTS_STR=$(echo "$TESTS_STR" | sed 's/^,//;s/,$//')
+          fi
+          
+          # Output results
+          echo "fail_to_pass=$FAIL_TO_PASS_JSON" >> $GITHUB_OUTPUT
+          echo "pass_to_pass=$PASS_TO_PASS_JSON" >> $GITHUB_OUTPUT
+          echo "tests=$TESTS_STR" >> $GITHUB_OUTPUT
+          echo "comment_id=$COMMENT_ID" >> $GITHUB_OUTPUT
+
+      # ─── 1.3 extract metadata (optional) ───
+      - name: Extract metadata fields
+        id: extract_metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBERS: ${{ steps.collect_issues.outputs.issue_numbers }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          TEST_ARGS=""
+          JAVA_VERSION=""
+
+          parse_metadata() {
+            local text="$1"
+            local json
+            if [[ -n "$text" && "$text" =~ METADATA:[[:space:]]*(\{.*\}) ]]; then
+              json="${BASH_REMATCH[1]}"
+              # Normalize quotes for jq if needed
+              TA=$(echo "$json" | jq -r '."test_args" // empty' 2>/dev/null || true)
+              JV=$(echo "$json" | jq -r '."java-version" // empty' 2>/dev/null || true)
+              if [[ -n "$TA" ]]; then TEST_ARGS="$TA"; fi
+              if [[ -n "$JV" ]]; then JAVA_VERSION="$JV"; fi
+            fi
+          }
+
+          for ISSUE_NUMBER in $(echo $ISSUE_NUMBERS | jq -r '.[]'); do
+            if [[ -z "$ISSUE_NUMBER" || "$ISSUE_NUMBER" == "null" ]]; then
+              continue
+            fi
+
+            # Check issue comments (latest first)
+            COMMENTS=$(gh api repos/$REPO/issues/$ISSUE_NUMBER/comments --jq '.[] | {id: .id, body: .body, created_at: .created_at}' || true)
+            if [[ -n "$COMMENTS" ]]; then
+              LATEST_COMMENT_WITH_VALUES=""
+              while IFS= read -r COMMENT; do
+                COMMENT_BODY=$(echo "$COMMENT" | jq -r '.body')
+                if [[ -n "$COMMENT_BODY" ]]; then
+                  parse_metadata "$COMMENT_BODY"
+                fi
+              done <<< "$COMMENTS"
+            fi
+
+            if [[ -z "$TEST_ARGS" && -z "$JAVA_VERSION" ]]; then
+              # Scan linked commits
+              COMMIT_IDS=$(gh api repos/$REPO/issues/$ISSUE_NUMBER/timeline --jq '.[] | select(.event == "referenced" and .commit_id != null) | .commit_id' || true)
+              if [[ -z "$COMMIT_IDS" ]]; then
+                PR_NUMBERS=$(gh api repos/$REPO/issues/$ISSUE_NUMBER/timeline --jq '.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) | .source.issue.number' || true)
+                if [[ -n "$PR_NUMBERS" ]]; then
+                  for PR in $PR_NUMBERS; do
+                    PR_COMMITS=$(gh api repos/$REPO/pulls/$PR/commits --jq '.[].sha' || true)
+                    [[ -n "$PR_COMMITS" ]] && COMMIT_IDS="$COMMIT_IDS"$'\n'"$PR_COMMITS"
+                  done
+                fi
+              fi
+              if [[ -n "$COMMIT_IDS" ]]; then
+                while IFS= read -r COMMIT_ID; do
+                  [[ -z "$COMMIT_ID" ]] && continue
+                  COMMIT_MSG=$(gh api repos/$REPO/commits/$COMMIT_ID --jq '.commit.message' || true)
+                  parse_metadata "$COMMIT_MSG"
+                done <<< "$COMMIT_IDS"
+              fi
+            fi
+
+            # Break after first issue with metadata found
+            if [[ -n "$TEST_ARGS" || -n "$JAVA_VERSION" ]]; then
+              break
+            fi
+          done
+
+          echo "test_args=$TEST_ARGS" >> $GITHUB_OUTPUT
+          echo "java_version=$JAVA_VERSION" >> $GITHUB_OUTPUT
+
+      # ─── 1.4 combine test results ───
+      - name: Combine test results
+        id: combine
+        shell: bash
+        run: |
+          # Just pass through the outputs from extract_tests
+          echo "fail_to_pass=${{ steps.extract_tests.outputs.fail_to_pass }}" >> $GITHUB_OUTPUT
+          echo "pass_to_pass=${{ steps.extract_tests.outputs.pass_to_pass }}" >> $GITHUB_OUTPUT
+          echo "tests=${{ steps.extract_tests.outputs.tests }}" >> $GITHUB_OUTPUT
+          echo "comment_id=${{ steps.extract_tests.outputs.comment_id }}" >> $GITHUB_OUTPUT
+          echo "test_args=${{ steps.extract_metadata.outputs.test_args }}" >> $GITHUB_OUTPUT
+          echo "java_version=${{ steps.extract_metadata.outputs.java_version }}" >> $GITHUB_OUTPUT
+
+      # ─── 1.4 check if FAIL_TO_PASS or PASS_TO_PASS found ───
+      - name: Check if FAIL_TO_PASS or PASS_TO_PASS found
+        if: ${{ github.event_name == 'pull_request' && steps.combine.outputs.fail_to_pass == '[]' && steps.combine.outputs.pass_to_pass == '[]' }}
+        shell: bash
+        run: |
+          echo "::error::FAIL_TO_PASS or PASS_TO_PASS not found in commit messages or issue comments, please add FAIL_TO_PASS or PASS_TO_PASS to issue comment"
+          exit 1
+
+  # ──────────── 2. Run tests and handle comments ────────────
+  run-tests-and-comments:
+    needs: collect-process-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    if: ${{ false }}
+    outputs:
+      comment_id: ${{ steps.create_comment.outputs.comment_id }}
+      status: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 1: Create placeholder comment
+      - name: Create placeholder issue comment
+        id: create_comment
+        if: ${{ github.event_name == 'push' || github.event_name == 'issue_comment' }}
+        uses: actions/github-script@v7
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          FAIL_TO_PASS: ${{ needs.collect-process-tests.outputs.fail_to_pass }}
+          PASS_TO_PASS: ${{ needs.collect-process-tests.outputs.pass_to_pass }}
+          COMMENT_ID: ${{ needs.collect-process-tests.outputs.comment_id }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const issuePat = /#(\d+)/g;
+            let issueNum = null, m;
+            
+            // • PR context
+            if (context.payload.pull_request) {
+              const whole = `${context.payload.pull_request.title}\n${context.payload.pull_request.body}`;
+              if ((m = issuePat.exec(whole)) !== null) issueNum = +m[1];
+            }
+            
+            // • Push context
+            if (!issueNum && context.payload.commits) {
+              for (const c of context.payload.commits) {
+                if ((m = issuePat.exec(c.message)) !== null) { issueNum = +m[1]; break; }
+              }
+            }
+            
+            // • Issue comment context
+            if (!issueNum && context.payload.issue) {
+              issueNum = context.payload.issue.number;
+            }
+            
+            if (!issueNum) { core.info('No #issue reference found.'); return; }
+            
+            let bodyContent = '';
+
+            if (!process.env.COMMENT_ID){
+              if (process.env.FAIL_TO_PASS && process.env.FAIL_TO_PASS !== '[]') {
+                // Parse JSON array and convert to comma-separated string
+                core.info('FAIL_TO_PASS: '+process.env.FAIL_TO_PASS);
+                const failToPassArray = JSON.parse(process.env.FAIL_TO_PASS);              
+                const failToPassString = failToPassArray.join(', ');            
+                bodyContent += `FAIL_TO_PASS: ${failToPassString}\n`;
+              }
+            
+              if (process.env.PASS_TO_PASS && process.env.PASS_TO_PASS !== '[]') {
+                // Parse JSON array and convert to comma-separated string
+                const passToPassArray = JSON.parse(process.env.PASS_TO_PASS);
+                const passToPassString = passToPassArray.join(', ');
+                bodyContent += `PASS_TO_PASS: ${passToPassString}\n`;
+              }
+            }
+
+            bodyContent += `\n⏳ **[${process.env.WORKFLOW_NAME}](${process.env.RUN_URL})** has **started**…`;
+
+            // If we have an existing comment ID, update it instead of creating a new one
+            if (false && process.env.COMMENT_ID) {
+              try {
+                // Get existing comment body
+                const { data: existingComment } = await github.rest.issues.getComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: Number(process.env.COMMENT_ID)
+                });
+
+                // Append new content to existing body
+                const updatedBody = existingComment.body + '\n' + bodyContent;
+
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: Number(process.env.COMMENT_ID),
+                  body: updatedBody
+                });
+                core.setOutput('comment_id', process.env.COMMENT_ID);
+                return;
+              } catch (error) {
+                core.warning(`Failed to update comment ${process.env.COMMENT_ID}: ${error.message}`);
+                // Fall through to create a new comment
+              }
+            }
+
+            // Create a new comment
+            const { data: comment } = await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNum,
+              body: bodyContent
+            });
+            core.setOutput('comment_id', comment.id.toString());
+
+      # Step 2: Prepare parameters for dataset verification
+      - name: Prepare dataset verification parameters
+        id: prepare_params
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          CT_TEST_ARGS: ${{ needs.collect-process-tests.outputs.test_args }}
+          CT_JAVA_VERSION: ${{ needs.collect-process-tests.outputs.java_version }}
+        run: |
+          set -e
+          # Ensure we have history before computing SHAs
+          git fetch --prune --unshallow || true
+          git fetch --all --tags || true
+
+          # Determine base and head SHAs
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            ISSUE_NUMBER="${{ github.event.pull_request.number }}"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+            ISSUE_NUMBER="$(echo "${{ github.event.head_commit.message }}" | grep -oE '#[0-9]+' | head -n1 | tr -d '#')"
+          elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            HEAD_SHA="${{ github.sha }}"
+            BASE_SHA="$(git rev-parse HEAD~1 2>/dev/null || true)"
+            if [[ -z "$BASE_SHA" ]]; then
+              if git rev-parse --verify origin/main >/dev/null 2>&1; then
+                BASE_SHA="$(git merge-base HEAD origin/main || true)"
+              elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+                BASE_SHA="$(git merge-base HEAD origin/master || true)"
+              fi
+            fi
+            if [[ -z "$BASE_SHA" ]]; then
+              BASE_SHA="$HEAD_SHA"
+            fi
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          else
+            HEAD_SHA="${{ github.sha }}"
+            BASE_SHA="$(git rev-parse HEAD~1 2>/dev/null || true)"
+            if [[ -z "$BASE_SHA" ]]; then BASE_SHA="$HEAD_SHA"; fi
+            ISSUE_NUMBER=""
+          fi
+          echo "Base: $BASE_SHA"
+          echo "Head: $HEAD_SHA"
+
+          # Build patches only from commits related to the issue(s)
+          export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          ISSUE_NUMBERS_JSON='${{ needs.collect-process-tests.outputs.issue_numbers }}'
+
+          REPO_FULL="$REPO"
+
+          # Helper: classify per-file diffs into source vs test
+          classify_and_append() {
+            awk -v source_out="$1" -v tests_out="$2" '
+              function basename(p,   n, arr){ n=split(p, arr, "/"); return arr[n]; }
+              function is_test_path(p,    pl, bl) {
+                pl=tolower(p); bl=tolower(basename(p));
+                return (index(pl, "/test/") || index(pl, "/tests/") || index(pl, "/src/test/") || index(pl, "/main/test/") ||
+                        index(pl, "/spec/") || index(pl, "/specs/") || index(pl, "__tests__") || index(pl, "__test__") ||
+                        pl ~ /_test[._]/ || pl ~ /_spec[._]/ || bl ~ /^test_/ || bl ~ /tests\./ || bl ~ /test\./ || bl ~ /spec\./);
+              }
+              /^diff --git / {
+                if (block != "") { if (current_is_test) print block >> tests_out; else print block >> source_out; }
+                path=""; if (match($0, /^diff --git a\/([^ ]+) b\//, m)) { path=m[1]; }
+                current_is_test=is_test_path(path); block=$0 "\n"; next;
+              }
+              { block = block $0 "\n"; }
+              END { if (block != "") { if (current_is_test) print block >> tests_out; else print block >> source_out; } }
+            '
+          }
+
+          TMP_COMMITS="$(mktemp)"
+
+          if [[ -n "$ISSUE_NUMBERS_JSON" && "$ISSUE_NUMBERS_JSON" != "null" ]]; then
+            for ISSUE in $(echo "$ISSUE_NUMBERS_JSON" | jq -r '.[]?'); do
+              [[ -z "$ISSUE" || "$ISSUE" == "null" ]] && continue
+
+              # From timeline referenced commits
+              COMMITS=$(gh api repos/$REPO_FULL/issues/$ISSUE/timeline --jq '.[] | select(.event == "referenced" and .commit_id != null) | .commit_id' || true)
+              for C in $COMMITS; do
+                [[ -z "$C" ]] && continue
+                DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+              done
+
+              # From issue body
+              BODY=$(gh api repos/$REPO_FULL/issues/$ISSUE --jq '.body' 2>/dev/null || true)
+              if [[ -n "$BODY" ]]; then
+                for C in $(echo "$BODY" | grep -oE '\b[0-9a-f]{40}\b' | sort -u); do
+                  DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                  [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+                done
+              fi
+
+              # From comments
+              while IFS= read -r COMMENT; do
+                [[ -z "$COMMENT" ]] && continue
+                for C in $(echo "$COMMENT" | grep -oE '\b[0-9a-f]{40}\b' | sort -u); do
+                  DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                  [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+                done
+              done <<< "$(gh api repos/$REPO_FULL/issues/$ISSUE/comments --jq '.[].body' 2>/dev/null || true)"
+
+              # From cross-referenced PRs
+              PRS=$(gh api repos/$REPO_FULL/issues/$ISSUE/timeline --jq '.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) | .source.issue.number' 2>/dev/null || true)
+              for PR in $PRS; do
+                PR_COMMITS=$(gh api repos/$REPO_FULL/pulls/$PR/commits --jq '.[].sha' 2>/dev/null || true)
+                for C in $PR_COMMITS; do
+                  DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                  [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+                done
+              done
+            done
+          fi
+
+          PATCH_CONTENT=""; TEST_PATCH_CONTENT=""
+          if [[ -s "$TMP_COMMITS" ]]; then
+            # Dedupe by SHA, keep first date, then sort by date asc
+            SORTED=$(awk '!seen[$1]++{print}' "$TMP_COMMITS" | sort -k2)
+            EARLIEST_SHA=$(echo "$SORTED" | head -n1 | awk '{print $1}')
+            LATEST_SHA=$(echo "$SORTED" | tail -n1 | awk '{print $1}')
+            if [[ -n "$EARLIEST_SHA" ]]; then
+              BASE_PARENT=$(gh api repos/$REPO_FULL/commits/$EARLIEST_SHA --jq '.parents[0].sha' 2>/dev/null || true)
+              [[ -n "$BASE_PARENT" ]] && BASE_SHA="$BASE_PARENT"
+            fi
+            [[ -n "$LATEST_SHA" ]] && HEAD_SHA="$LATEST_SHA"
+
+            SRC_FILE="$(mktemp)"; TEST_FILE="$(mktemp)"; : > "$SRC_FILE"; : > "$TEST_FILE"
+            while read -r SHA DATE; do
+              [[ -z "$SHA" ]] && continue
+              PATCH_TEXT=$(gh api repos/$REPO_FULL/commits/$SHA -H 'Accept: application/vnd.github.v3.patch' 2>/dev/null || true)
+              if [[ -n "$PATCH_TEXT" ]]; then
+                echo "$PATCH_TEXT" | classify_and_append "$SRC_FILE" "$TEST_FILE"
+              fi
+            done <<< "$SORTED"
+            PATCH_CONTENT="$(cat "$SRC_FILE" || true)"
+            TEST_PATCH_CONTENT="$(cat "$TEST_FILE" || true)"
+            rm -f "$SRC_FILE" "$TEST_FILE"
+          else
+            # Fallback to full diff between BASE and HEAD
+            FULL_DIFF="$(git diff "$BASE_SHA" "$HEAD_SHA" || true)"
+            SRC_FILE="$(mktemp)"; TEST_FILE="$(mktemp)"; : > "$SRC_FILE"; : > "$TEST_FILE"
+            echo "$FULL_DIFF" | classify_and_append "$SRC_FILE" "$TEST_FILE"
+            PATCH_CONTENT="$(cat "$SRC_FILE" || true)"
+            TEST_PATCH_CONTENT="$(cat "$TEST_FILE" || true)"
+            rm -f "$SRC_FILE" "$TEST_FILE"
+          fi
+          rm -f "$TMP_COMMITS" 2>/dev/null || true
+
+          # Derived parameters
+          TEST_ARGS="${CT_TEST_ARGS}"
+          JAVA_VERSION="${CT_JAVA_VERSION}"
+          if [[ "$TEST_ARGS" == "null" ]]; then TEST_ARGS=""; fi
+          if [[ -z "$JAVA_VERSION" || "$JAVA_VERSION" == "null" ]]; then JAVA_VERSION="24"; fi
+          OWNER="${{ github.repository_owner }}"; REPO_NAME="${REPO#*/}"
+          if [[ -n "$ISSUE_NUMBER" ]]; then INSTANCE_ID="${OWNER}__${REPO_NAME}__${ISSUE_NUMBER}"; else INSTANCE_ID=""; fi
+
+          { echo "base_sha=$BASE_SHA"; echo "head_sha=$HEAD_SHA"; echo "instance_id=$INSTANCE_ID"; } >> "$GITHUB_OUTPUT"
+          { echo "PATCH<<EOF"; printf "%s\n" "$PATCH_CONTENT"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          { echo "TEST_PATCH<<EOF"; printf "%s\n" "$TEST_PATCH_CONTENT"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          echo "test_args=$TEST_ARGS" >> "$GITHUB_OUTPUT"
+          echo "java_version=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+
+      # Step 3: Run dataset verifier script
+      - name: Run dataset verifier
+        id: run_verifier
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          FAIL_TO_PASS: ${{ needs.collect-process-tests.outputs.fail_to_pass }}
+          PASS_TO_PASS: ${{ needs.collect-process-tests.outputs.pass_to_pass }}
+          PATCH: ${{ steps.prepare_params.outputs.PATCH }}
+          TEST_PATCH: ${{ steps.prepare_params.outputs.TEST_PATCH }}
+          COMMIT: ${{ steps.prepare_params.outputs.base_sha }}
+          TEST_ARGS: ${{ steps.prepare_params.outputs.test_args }}
+          JAVA_VERSION: ${{ steps.prepare_params.outputs.java_version }}
+          INSTANCE_ID: ${{ steps.prepare_params.outputs.instance_id }}
+        run: |
+          set -e
+          chmod +x .github/workflows/verify_java_dataset_instance.sh
+          OUTPUT_FILE="$(mktemp)"
+          .github/workflows/verify_java_dataset_instance.sh \
+            "$REPO" \
+            "$COMMIT" \
+            "$PATCH" \
+            "$TEST_PATCH" \
+            "$FAIL_TO_PASS" \
+            "$PASS_TO_PASS" \
+            "$TEST_ARGS" \
+            "true" \
+            "$JAVA_VERSION" \
+            "$INSTANCE_ID" \
+            false \
+            true | tee "$OUTPUT_FILE"
+          VERDICT="$(tail -n1 "$OUTPUT_FILE")"
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+          if [[ "$VERDICT" == "✅" ]]; then
+            echo "result=success" >> $GITHUB_OUTPUT
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+            echo "reason=All checks passed" >> $GITHUB_OUTPUT
+          else
+            echo "result=failure" >> $GITHUB_OUTPUT
+            echo "emoji=❌" >> $GITHUB_OUTPUT
+            CLEAN_REASON="${VERDICT#❌ }"
+            echo "reason=$CLEAN_REASON" >> $GITHUB_OUTPUT
+          fi
+
+      # Step 4: Update comment with final status from verifier
+      - name: Update issue comment with final status
+        if: ${{ always() && (github.event_name == 'push' || github.event_name == 'issue_comment') }}
+        uses: actions/github-script@v7
+        env:
+          COMMENT_ID: ${{ steps.create_comment.outputs.comment_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RESULT: ${{ steps.run_verifier.outputs.result }}
+          EMOJI: ${{ steps.run_verifier.outputs.emoji }}
+          REASON: ${{ steps.run_verifier.outputs.reason }}
+          FAIL_TO_PASS: ${{ needs.collect-process-tests.outputs.fail_to_pass }}
+          PASS_TO_PASS: ${{ needs.collect-process-tests.outputs.pass_to_pass }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            if (!process.env.COMMENT_ID) { core.info('No comment to update.'); return; }
+            let bodyContent = '';
+            if (!process.env.COMMENT_ID){
+              if (process.env.FAIL_TO_PASS && process.env.FAIL_TO_PASS !== '[]') {
+                const failToPassArray = JSON.parse(process.env.FAIL_TO_PASS);
+                const failToPassString = failToPassArray.join(', ');
+                bodyContent += `FAIL_TO_PASS: ${failToPassString}\n`;
+              }
+              if (process.env.PASS_TO_PASS && process.env.PASS_TO_PASS !== '[]') {
+                const passToPassArray = JSON.parse(process.env.PASS_TO_PASS);
+                const passToPassString = passToPassArray.join(', ');
+                bodyContent += `PASS_TO_PASS: ${passToPassString}\n`;
+              }
+            }
+            const emoji = process.env.EMOJI || '🟡';
+            const reason = process.env.REASON ? `: ${process.env.REASON}` : '';
+            bodyContent += `\n${emoji} **[${process.env.WORKFLOW_NAME}](${process.env.RUN_URL})** finished${reason}`;
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: Number(process.env.COMMENT_ID),
+              body: bodyContent
+            });
+
+  # ──────────── 2.a Create placeholder comment (split) ────────────
+  create-comment:
+    needs: collect-process-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    if: ${{ github.event_name == 'push' || github.event_name == 'issue_comment' }}
+    outputs:
+      comment_id: ${{ steps.create_comment.outputs.comment_id }}
+    steps:
+      - name: Create placeholder issue comment
+        id: create_comment
+        uses: actions/github-script@v7
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          FAIL_TO_PASS: ${{ needs.collect-process-tests.outputs.fail_to_pass }}
+          PASS_TO_PASS: ${{ needs.collect-process-tests.outputs.pass_to_pass }}
+          COMMENT_ID: ${{ needs.collect-process-tests.outputs.comment_id }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const issuePat = /#(\d+)/g;
+            let issueNum = null, m;
+
+            if (context.payload.pull_request) {
+              const whole = `${context.payload.pull_request.title}\n${context.payload.pull_request.body}`;
+              if ((m = issuePat.exec(whole)) !== null) issueNum = +m[1];
+            }
+            if (!issueNum && context.payload.commits) {
+              for (const c of context.payload.commits) {
+                if ((m = issuePat.exec(c.message)) !== null) { issueNum = +m[1]; break; }
+              }
+            }
+            if (!issueNum && context.payload.issue) {
+              issueNum = context.payload.issue.number;
+            }
+            if (!issueNum) { core.info('No #issue reference found.'); return; }
+
+            let bodyContent = '';
+            if (!process.env.COMMENT_ID){
+              if (process.env.FAIL_TO_PASS && process.env.FAIL_TO_PASS !== '[]') {
+                const failToPassArray = JSON.parse(process.env.FAIL_TO_PASS);
+                const failToPassString = failToPassArray.join(', ');
+                bodyContent += `FAIL_TO_PASS: ${failToPassString}\n`;
+              }
+              if (process.env.PASS_TO_PASS && process.env.PASS_TO_PASS !== '[]') {
+                const passToPassArray = JSON.parse(process.env.PASS_TO_PASS);
+                const passToPassString = passToPassArray.join(', ');
+                bodyContent += `PASS_TO_PASS: ${passToPassString}\n`;
+              }
+            }
+            bodyContent += `\n⏳ **[${process.env.WORKFLOW_NAME}](${process.env.RUN_URL})** has **started**…`;
+
+            const { data: comment } = await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNum,
+              body: bodyContent
+            });
+            core.setOutput('comment_id', comment.id.toString());
+
+  # ──────────── 2.b Prepare params (split) ────────────
+  prepare-params:
+    needs: collect-process-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: ${{ github.event_name != 'pull_request' || needs.collect-process-tests.outputs.fail_to_pass != '[]' || needs.collect-process-tests.outputs.pass_to_pass != '[]' }}
+    outputs:
+      base_sha: ${{ steps.prepare_params.outputs.base_sha }}
+      head_sha: ${{ steps.prepare_params.outputs.head_sha }}
+      PATCH: ${{ steps.prepare_params.outputs.PATCH }}
+      TEST_PATCH: ${{ steps.prepare_params.outputs.TEST_PATCH }}
+      test_args: ${{ steps.prepare_params.outputs.test_args }}
+      java_version: ${{ steps.prepare_params.outputs.java_version }}
+      is_maven: ${{ steps.prepare_params.outputs.is_maven }}
+      instance_id: ${{ steps.prepare_params.outputs.instance_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare dataset verification parameters
+        id: prepare_params
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          CT_TEST_ARGS: ${{ needs.collect-process-tests.outputs.test_args }}
+          CT_JAVA_VERSION: ${{ needs.collect-process-tests.outputs.java_version }}
+        run: |
+          set -e
+          git fetch --prune --unshallow || true
+          git fetch --all --tags || true
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            ISSUE_NUMBER="${{ github.event.pull_request.number }}"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+            ISSUE_NUMBER="$(echo "${{ github.event.head_commit.message }}" | grep -oE '#[0-9]+' | head -n1 | tr -d '#')"
+          elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            HEAD_SHA="${{ github.sha }}"
+            BASE_SHA="$(git rev-parse HEAD~1 2>/dev/null || true)"
+            if [[ -z "$BASE_SHA" ]]; then
+              if git rev-parse --verify origin/main >/dev/null 2>&1; then
+                BASE_SHA="$(git merge-base HEAD origin/main || true)"
+              elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+                BASE_SHA="$(git merge-base HEAD origin/master || true)"
+              fi
+            fi
+            if [[ -z "$BASE_SHA" ]]; then
+              BASE_SHA="$HEAD_SHA"
+            fi
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          else
+            HEAD_SHA="${{ github.sha }}"
+            BASE_SHA="$(git rev-parse HEAD~1 2>/dev/null || true)"
+            if [[ -z "$BASE_SHA" ]]; then BASE_SHA="$HEAD_SHA"; fi
+            ISSUE_NUMBER=""
+          fi
+          echo "Base: $BASE_SHA"
+          echo "Head: $HEAD_SHA"
+
+          # Build patches only from commits related to the issue(s)
+          export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          ISSUE_NUMBERS_JSON='${{ needs.collect-process-tests.outputs.issue_numbers }}'
+
+          REPO_FULL="$REPO"
+
+          classify_and_append() {
+            awk -v source_out="$1" -v tests_out="$2" '
+              function basename(p,   n, arr){ n=split(p, arr, "/"); return arr[n]; }
+              function is_test_path(p,    pl, bl) {
+                pl=tolower(p); bl=tolower(basename(p));
+                return (index(pl, "/test/") || index(pl, "/tests/") || index(pl, "/src/test/") || index(pl, "/main/test/") ||
+                        index(pl, "/spec/") || index(pl, "/specs/") || index(pl, "__tests__") || index(pl, "__test__") ||
+                        pl ~ /_test[._]/ || pl ~ /_spec[._]/ || bl ~ /^test_/ || bl ~ /tests\./ || bl ~ /test\./ || bl ~ /spec\./);
+              }
+              /^diff --git / {
+                if (block != "") { if (current_is_test) print block >> tests_out; else print block >> source_out; }
+                path=""; if (match($0, /^diff --git a\/([^ ]+) b\//, m)) { path=m[1]; }
+                current_is_test=is_test_path(path); block=$0 "\n"; next;
+              }
+              { block = block $0 "\n"; }
+              END { if (block != "") { if (current_is_test) print block >> tests_out; else print block >> source_out; } }
+            '
+          }
+
+          TMP_COMMITS="$(mktemp)"
+
+          if [[ -n "$ISSUE_NUMBERS_JSON" && "$ISSUE_NUMBERS_JSON" != "null" ]]; then
+            for ISSUE in $(echo "$ISSUE_NUMBERS_JSON" | jq -r '.[]?'); do
+              [[ -z "$ISSUE" || "$ISSUE" == "null" ]] && continue
+
+              COMMITS=$(gh api repos/$REPO_FULL/issues/$ISSUE/timeline --jq '.[] | select(.event == "referenced" and .commit_id != null) | .commit_id' || true)
+              for C in $COMMITS; do
+                [[ -z "$C" ]] && continue
+                DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+              done
+
+              BODY=$(gh api repos/$REPO_FULL/issues/$ISSUE --jq '.body' 2>/dev/null || true)
+              if [[ -n "$BODY" ]]; then
+                for C in $(echo "$BODY" | grep -oE '\b[0-9a-f]{40}\b' | sort -u); do
+                  DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                  [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+                done
+              fi
+
+              while IFS= read -r COMMENT; do
+                [[ -z "$COMMENT" ]] && continue
+                for C in $(echo "$COMMENT" | grep -oE '\b[0-9a-f]{40}\b' | sort -u); do
+                  DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                  [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+                done
+              done <<< "$(gh api repos/$REPO_FULL/issues/$ISSUE/comments --jq '.[].body' 2>/dev/null || true)"
+
+              PRS=$(gh api repos/$REPO_FULL/issues/$ISSUE/timeline --jq '.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) | .source.issue.number' 2>/dev/null || true)
+              for PR in $PRS; do
+                PR_COMMITS=$(gh api repos/$REPO_FULL/pulls/$PR/commits --jq '.[].sha' 2>/dev/null || true)
+                for C in $PR_COMMITS; do
+                  DATE=$(gh api repos/$REPO_FULL/commits/$C --jq '.commit.committer.date' 2>/dev/null || true)
+                  [[ -n "$DATE" ]] && echo "$C $DATE" >> "$TMP_COMMITS"
+                done
+              done
+            done
+          fi
+
+          PATCH_CONTENT=""; TEST_PATCH_CONTENT=""
+          if [[ -s "$TMP_COMMITS" ]]; then
+            SORTED=$(awk '!seen[$1]++{print}' "$TMP_COMMITS" | sort -k2)
+            EARLIEST_SHA=$(echo "$SORTED" | head -n1 | awk '{print $1}')
+            LATEST_SHA=$(echo "$SORTED" | tail -n1 | awk '{print $1}')
+            if [[ -n "$EARLIEST_SHA" ]]; then
+              BASE_PARENT=$(gh api repos/$REPO_FULL/commits/$EARLIEST_SHA --jq '.parents[0].sha' 2>/dev/null || true)
+              [[ -n "$BASE_PARENT" ]] && BASE_SHA="$BASE_PARENT"
+            fi
+            [[ -n "$LATEST_SHA" ]] && HEAD_SHA="$LATEST_SHA"
+
+            SRC_FILE="$(mktemp)"; TEST_FILE="$(mktemp)"; : > "$SRC_FILE"; : > "$TEST_FILE"
+            while read -r SHA DATE; do
+              [[ -z "$SHA" ]] && continue
+              PATCH_TEXT=$(gh api repos/$REPO_FULL/commits/$SHA -H 'Accept: application/vnd.github.v3.patch' 2>/dev/null || true)
+              if [[ -n "$PATCH_TEXT" ]]; then
+                echo "$PATCH_TEXT" | classify_and_append "$SRC_FILE" "$TEST_FILE"
+              fi
+            done <<< "$SORTED"
+            PATCH_CONTENT="$(cat "$SRC_FILE" || true)"
+            TEST_PATCH_CONTENT="$(cat "$TEST_FILE" || true)"
+            rm -f "$SRC_FILE" "$TEST_FILE"
+          else
+            FULL_DIFF="$(git diff "$BASE_SHA" "$HEAD_SHA" || true)"
+            SRC_FILE="$(mktemp)"; TEST_FILE="$(mktemp)"; : > "$SRC_FILE"; : > "$TEST_FILE"
+            echo "$FULL_DIFF" | classify_and_append "$SRC_FILE" "$TEST_FILE"
+            PATCH_CONTENT="$(cat "$SRC_FILE" || true)"
+            TEST_PATCH_CONTENT="$(cat "$TEST_FILE" || true)"
+            rm -f "$SRC_FILE" "$TEST_FILE"
+          fi
+          rm -f "$TMP_COMMITS" 2>/dev/null || true
+
+          TEST_ARGS="${CT_TEST_ARGS}"; JAVA_VERSION="${CT_JAVA_VERSION}"
+          if [[ "$TEST_ARGS" == "null" ]]; then TEST_ARGS=""; fi
+          if [[ -z "$JAVA_VERSION" || "$JAVA_VERSION" == "null" ]]; then JAVA_VERSION="24"; fi
+          OWNER="${{ github.repository_owner }}"; REPO_NAME="${REPO#*/}"
+          if [[ -n "$ISSUE_NUMBER" ]]; then INSTANCE_ID="${OWNER}__${REPO_NAME}__${ISSUE_NUMBER}"; else INSTANCE_ID=""; fi
+
+          # Detect build tool (Maven vs Gradle)
+          IS_MAVEN="true"
+          if git ls-files | grep -E '(^|/)(settings\.gradle(\.kts)?)$' -q; then
+            IS_MAVEN="false"
+          elif git ls-files | grep -E '(^|/)pom\.xml$' -q; then
+            IS_MAVEN="true"
+          elif [[ -f "settings.gradle" || -f "settings.gradle.kts" ]]; then
+            IS_MAVEN="false"
+          elif [[ -f "pom.xml" ]]; then
+            IS_MAVEN="true"
+          fi
+
+          { echo "base_sha=$BASE_SHA"; echo "head_sha=$HEAD_SHA"; echo "instance_id=$INSTANCE_ID"; } >> "$GITHUB_OUTPUT"
+          { echo "PATCH<<EOF"; printf "%s\n" "$PATCH_CONTENT"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          { echo "TEST_PATCH<<EOF"; printf "%s\n" "$TEST_PATCH_CONTENT"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          echo "test_args=$TEST_ARGS" >> "$GITHUB_OUTPUT"
+          echo "java_version=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_maven=$IS_MAVEN" >> "$GITHUB_OUTPUT"
+
+  # ──────────── 2.c Run verifier (split) ────────────
+  run-verifier:
+    needs: [collect-process-tests, prepare-params]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: ${{ github.event_name != 'pull_request' || needs.collect-process-tests.outputs.fail_to_pass != '[]' || needs.collect-process-tests.outputs.pass_to_pass != '[]' }}
+    outputs:
+      verdict: ${{ steps.run_verifier.outputs.verdict }}
+      result: ${{ steps.run_verifier.outputs.result }}
+      emoji: ${{ steps.run_verifier.outputs.emoji }}
+      reason: ${{ steps.run_verifier.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run dataset verifier
+        id: run_verifier
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          FAIL_TO_PASS: ${{ needs.collect-process-tests.outputs.fail_to_pass }}
+          PASS_TO_PASS: ${{ needs.collect-process-tests.outputs.pass_to_pass }}
+          PATCH: ${{ needs.prepare-params.outputs.PATCH }}
+          TEST_PATCH: ${{ needs.prepare-params.outputs.TEST_PATCH }}
+          COMMIT: ${{ needs.prepare-params.outputs.base_sha }}
+          TEST_ARGS: ${{ needs.prepare-params.outputs.test_args }}
+          JAVA_VERSION: ${{ needs.prepare-params.outputs.java_version }}
+          INSTANCE_ID: ${{ needs.prepare-params.outputs.instance_id }}
+          IS_MAVEN: ${{ needs.prepare-params.outputs.is_maven }}
+        run: |
+          set -e
+          chmod +x .github/workflows/verify_java_dataset_instance.sh
+          OUTPUT_FILE="$(mktemp)"
+          .github/workflows/verify_java_dataset_instance.sh \
+            "$REPO" \
+            "$COMMIT" \
+            "$PATCH" \
+            "$TEST_PATCH" \
+            "$FAIL_TO_PASS" \
+            "$PASS_TO_PASS" \
+            "$TEST_ARGS" \
+            "$IS_MAVEN" \
+            "$JAVA_VERSION" \
+            "$INSTANCE_ID" \
+            false \
+            true | tee "$OUTPUT_FILE"
+          VERDICT="$(tail -n1 "$OUTPUT_FILE")"
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+          if [[ "$VERDICT" == "✅" ]]; then
+            echo "result=success" >> $GITHUB_OUTPUT
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+            echo "reason=All checks passed" >> $GITHUB_OUTPUT
+          else
+            echo "result=failure" >> $GITHUB_OUTPUT
+            echo "emoji=❌" >> $GITHUB_OUTPUT
+            CLEAN_REASON="${VERDICT#❌ }"
+            echo "reason=$CLEAN_REASON" >> $GITHUB_OUTPUT
+          fi
+
+  # ──────────── 2.d Update comment (split) ────────────
+  update-comment:
+    needs: [collect-process-tests, create-comment, run-verifier]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    if: ${{ always() && (github.event_name == 'push' || github.event_name == 'issue_comment') }}
+    steps:
+      - name: Update issue comment with final status
+        uses: actions/github-script@v7
+        env:
+          COMMENT_ID: ${{ needs.create-comment.outputs.comment_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RESULT: ${{ needs.run-verifier.outputs.result }}
+          EMOJI: ${{ needs.run-verifier.outputs.emoji }}
+          REASON: ${{ needs.run-verifier.outputs.reason }}
+          FAIL_TO_PASS: ${{ needs.collect-process-tests.outputs.fail_to_pass }}
+          PASS_TO_PASS: ${{ needs.collect-process-tests.outputs.pass_to_pass }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            if (!process.env.COMMENT_ID) { core.info('No comment to update.'); return; }
+            let bodyContent = '';
+            if (!process.env.COMMENT_ID){
+              if (process.env.FAIL_TO_PASS && process.env.FAIL_TO_PASS !== '[]') {
+                const failToPassArray = JSON.parse(process.env.FAIL_TO_PASS);
+                const failToPassString = failToPassArray.join(', ');
+                bodyContent += `FAIL_TO_PASS: ${failToPassString}\n`;
+              }
+              if (process.env.PASS_TO_PASS && process.env.PASS_TO_PASS !== '[]') {
+                const passToPassArray = JSON.parse(process.env.PASS_TO_PASS);
+                const passToPassString = passToPassArray.join(', ');
+                bodyContent += `PASS_TO_PASS: ${passToPassString}\n`;
+              }
+            }
+            const emoji = process.env.EMOJI || '🟡';
+            const reason = process.env.REASON ? `: ${process.env.REASON}` : '';
+            bodyContent += `\n${emoji} **[${process.env.WORKFLOW_NAME}](${process.env.RUN_URL})** finished${reason}`;
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: Number(process.env.COMMENT_ID),
+              body: bodyContent
+            });
