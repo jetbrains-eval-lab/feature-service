@@ -1,8 +1,11 @@
+delete from feature_tags;
+delete from tags;
 delete from favorite_features;
 delete from comments;
 delete from features;
 delete from releases;
 delete from products;
+delete from categories;
 
 insert into products (id, code, prefix, name, description, image_url, disabled, created_by, created_at) values
 (1, 'intellij', 'IDEA', 'IntelliJ IDEA', 'JetBrains IDE for Java', 'https://resources.jetbrains.com/storage/products/company/brand/logos/IntelliJ_IDEA.png', false, 'admin', '2024-03-01 00:00:00'),
@@ -34,3 +37,26 @@ insert into comments (id, feature_id, created_by, content) values
 (1, 1, 'user', 'This is a comment on feature IDEA-1'),
 (2,  1, 'user', 'This is a comment on feature IDEA-2'),
 (3, 1, 'user', 'This is a comment on feature GO-3');
+
+
+insert into tags (id, name, description, created_by, created_at) values
+(1, 'bug', 'Bug fix', 'admin', '2024-03-01 00:00:00'),
+(2, 'enhancement', 'Feature enhancement', 'admin', '2024-03-01 00:00:00'),
+(3, 'documentation', 'Documentation update', 'admin', '2024-03-01 00:00:00'),
+(4, 'performance', 'Performance improvement', 'admin', '2024-03-01 00:00:00');
+
+insert into feature_tags (feature_id, tag_id) values
+(1, 2),
+(1, 4),
+(3, 1),
+(2, 1);
+
+insert into categories (id, name, description, parent_category_id, created_by, created_at) values
+(1, 'SpringBoot', 'Spring Boot framework', null, 'admin', '2024-03-01 00:00:00'),
+(2, 'Quarkus', 'Quarkus framework', null, 'admin', '2024-03-01 00:00:00'),
+(3, 'CICD', 'CI/CD', null, 'admin', '2024-03-01 00:00:00'),
+(4, 'Angular', 'Angular framework', null, 'admin', '2024-03-01 00:00:00');
+
+update features set category_id = 1 where id = 1;
+update features set category_id = 3 where id = 2;
+update features set category_id = 2 where id = 3;
